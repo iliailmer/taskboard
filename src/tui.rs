@@ -8,17 +8,19 @@ use crossterm::{
 use ratatui::{
     Frame, Terminal,
     backend::{Backend, CrosstermBackend},
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
 };
+use std::collections::HashMap;
 use std::io;
 
 pub struct App {
     manager: Mngr,
     tasks: Vec<Task>,
-    list_state: ListState,
+    selected_column: usize, // 0 = NotStarted, 1 = InProgress, 2 = Done
+    selected_row: usize,    // Index within the selected column
     mode: AppMode,
     input: String,
     error_message: Option<String>,
@@ -34,14 +36,11 @@ enum AppMode {
 impl App {
     pub fn new(manager: Mngr) -> io::Result<App> {
         let tasks = manager.get_tasks()?;
-        let mut list_state = ListState::default();
-        if !tasks.is_empty() {
-            list_state.select(Some(0));
-        }
         Ok(App {
             manager,
             tasks,
-            list_state,
+            selected_column: 0,
+            selected_row: 0,
             mode: AppMode::Normal,
             input: String::new(),
             error_message: None,
@@ -49,59 +48,136 @@ impl App {
     }
 
     fn reload_tasks(&mut self) -> io::Result<()> {
+        let old_task_id = self.get_selected_task().map(|t| t.id);
         self.tasks = self.manager.get_tasks()?;
-        if self.tasks.is_empty() {
-            self.list_state.select(None);
-        } else if let Some(selected) = self.list_state.selected() {
-            if selected >= self.tasks.len() {
-                self.list_state.select(Some(self.tasks.len() - 1));
+
+        // Try to maintain selection on the same task
+        if let Some(task_id) = old_task_id {
+            let grouped = self.get_grouped_tasks();
+            let columns = [Status::NotStarted, Status::InProgress, Status::Done];
+
+            for (col_idx, status) in columns.iter().enumerate() {
+                let tasks = grouped.get(status);
+                match tasks {
+                    Some(value) => {
+                        if let Some(row_idx) = value.iter().position(|t| t.id == task_id) {
+                            self.selected_column = col_idx;
+                            self.selected_row = row_idx;
+                            return Ok(());
+                        }
+                    },
+                    None => continue,
+                };
             }
-        } else {
-            self.list_state.select(Some(0));
         }
+
+        // If we couldn't find the task, reset to a valid position
+        self.ensure_valid_selection();
         Ok(())
     }
 
-    fn next(&mut self) {
-        if self.tasks.is_empty() {
-            return;
+    fn get_grouped_tasks(&self) -> HashMap<Status, Vec<&Task>> {
+        let mut grouped: HashMap<Status, Vec<&Task>> = HashMap::new();
+        for task in &self.tasks {
+            grouped.entry(task.status).or_default().push(task);
         }
-        let i = match self.list_state.selected() {
-            Some(i) => {
-                if i >= self.tasks.len() - 1 {
-                    0
-                } else {
-                    i + 1
-                }
-            },
-            None => 0,
-        };
-        self.list_state.select(Some(i));
+        grouped
     }
 
-    fn previous(&mut self) {
-        if self.tasks.is_empty() {
-            return;
+    fn get_selected_task(&self) -> Option<&Task> {
+        let grouped = self.get_grouped_tasks();
+        let columns = [Status::NotStarted, Status::InProgress, Status::Done];
+
+        if self.selected_column >= columns.len() {
+            return None;
         }
-        let i = match self.list_state.selected() {
-            Some(i) => {
-                if i == 0 {
-                    self.tasks.len() - 1
-                } else {
-                    i - 1
+
+        let status = columns[self.selected_column];
+        grouped
+            .get(&status)
+            .and_then(|tasks| tasks.get(self.selected_row).copied())
+    }
+
+    fn ensure_valid_selection(&mut self) {
+        let grouped = self.get_grouped_tasks();
+        let columns = [Status::NotStarted, Status::InProgress, Status::Done];
+
+        // Make sure selected_column is valid
+        let mut current_column = self.selected_column;
+        if current_column >= columns.len() {
+            current_column = 0;
+        }
+
+        // Make sure selected_row is valid for the current column
+        let status = columns[current_column];
+        let column_len = grouped.get(&status).map(|v| v.len()).unwrap_or(0);
+
+        if column_len == 0 {
+            // Current column is empty, try to find a non-empty column
+            for (idx, col_status) in columns.iter().enumerate() {
+                if grouped.get(col_status).map(|v| v.len()).unwrap_or(0) > 0 {
+                    self.selected_column = idx;
+                    self.selected_row = 0;
+                    return;
                 }
-            },
-            None => 0,
-        };
-        self.list_state.select(Some(i));
+            }
+            // All columns are empty
+            self.selected_column = current_column;
+            self.selected_row = 0;
+        } else {
+            self.selected_column = current_column;
+            if self.selected_row >= column_len {
+                self.selected_row = column_len - 1;
+            }
+        }
+    }
+
+    fn next_in_column(&mut self) {
+        let grouped = self.get_grouped_tasks();
+        let columns = [Status::NotStarted, Status::InProgress, Status::Done];
+        let status = columns[self.selected_column];
+        if let Some(tasks) = grouped.get(&status)
+            && !tasks.is_empty()
+        {
+            self.selected_row = (self.selected_row + 1) % tasks.len();
+        }
+    }
+
+    fn previous_in_column(&mut self) {
+        let grouped = self.get_grouped_tasks();
+        let columns = [Status::NotStarted, Status::InProgress, Status::Done];
+        let status = columns[self.selected_column];
+
+        if let Some(tasks) = grouped.get(&status)
+            && !tasks.is_empty()
+        {
+            if self.selected_row == 0 {
+                self.selected_row = tasks.len() - 1;
+            } else {
+                self.selected_row -= 1;
+            }
+        }
+    }
+
+    fn next_column(&mut self) {
+        self.selected_column = (self.selected_column + 1) % 3;
+        self.ensure_valid_selection();
+    }
+
+    fn previous_column(&mut self) {
+        if self.selected_column == 0 {
+            self.selected_column = 2;
+        } else {
+            self.selected_column -= 1;
+        }
+        self.ensure_valid_selection();
     }
 
     fn update_task_status(&mut self, status: Status) -> io::Result<()> {
-        if let Some(selected) = self.list_state.selected()
-            && let Some(task) = self.tasks.get(selected)
-        {
+        if let Some(task) = self.get_selected_task() {
+            let task_id = task.id;
             self.manager
-                .update_task(task.id, status, None)
+                .update_task(task_id, status, None)
                 .map_err(io::Error::other)?;
             self.reload_tasks()?;
         }
@@ -109,11 +185,10 @@ impl App {
     }
 
     fn delete_current_task(&mut self) -> io::Result<()> {
-        if let Some(selected) = self.list_state.selected()
-            && let Some(task) = self.tasks.get(selected)
-        {
+        if let Some(task) = self.get_selected_task() {
+            let task_id = task.id;
             self.manager
-                .delete_task(task.id)
+                .delete_task(task_id)
                 .map_err(io::Error::other)?;
             self.reload_tasks()?;
         }
@@ -128,9 +203,15 @@ impl App {
             self.input.clear();
             self.mode = AppMode::Normal;
             self.reload_tasks()?;
-            // Select the newly added task (last one)
-            if !self.tasks.is_empty() {
-                self.list_state.select(Some(self.tasks.len() - 1));
+            // Select the newly added task (goes to NotStarted column)
+            self.selected_column = 0;
+            self.ensure_valid_selection();
+            // Move to the last task in NotStarted column
+            let grouped = self.get_grouped_tasks();
+            if let Some(tasks) = grouped.get(&Status::NotStarted)
+                && !tasks.is_empty()
+            {
+                self.selected_row = tasks.len() - 1;
             }
         }
         Ok(())
@@ -176,15 +257,17 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                         return Ok(());
                     },
-                    KeyCode::Down | KeyCode::Char('j') => app.next(),
-                    KeyCode::Up | KeyCode::Char('k') => app.previous(),
+                    KeyCode::Down | KeyCode::Char('j') => app.next_in_column(),
+                    KeyCode::Up | KeyCode::Char('k') => app.previous_in_column(),
+                    KeyCode::Right | KeyCode::Char('l') => app.next_column(),
+                    KeyCode::Left | KeyCode::Char('h') => app.previous_column(),
                     KeyCode::Char('n') => {
                         app.mode = AppMode::AddingTask;
                         app.input.clear();
                         app.error_message = None;
                     },
                     KeyCode::Char('d') => {
-                        if app.list_state.selected().is_some() && !app.tasks.is_empty() {
+                        if app.get_selected_task().is_some() {
                             app.mode = AppMode::ConfirmDelete;
                             app.error_message = None;
                         }
@@ -257,15 +340,15 @@ fn ui(f: &mut Frame, app: &mut App) {
         .margin(1)
         .constraints([
             Constraint::Length(3), // Title
-            Constraint::Min(5),    // Task list
-            Constraint::Length(8), // Help
+            Constraint::Min(10),   // Kanban board
+            Constraint::Length(6), // Help
         ])
         .split(f.area());
 
     // Title
     let title = Paragraph::new(vec![
         Line::from(vec![Span::styled(
-            "TaskList - Interactive TUI",
+            "TaskBoard - Kanban View",
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
@@ -279,51 +362,9 @@ fn ui(f: &mut Frame, app: &mut App) {
     .block(Block::default().borders(Borders::ALL));
     f.render_widget(title, chunks[0]);
 
-    // Task list
-    let items: Vec<ListItem> = app
-        .tasks
-        .iter()
-        .map(|task| {
-            let status_color = match task.status {
-                Status::NotStarted => Color::Yellow,
-                Status::InProgress => Color::Blue,
-                Status::Done => Color::Green,
-            };
-
-            let content = Line::from(vec![
-                Span::styled(
-                    format!("{:3} ", task.id),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                Span::styled(
-                    format!("{} ", task.status),
-                    Style::default().fg(status_color),
-                ),
-                Span::raw(&task.description),
-                Span::styled(
-                    format!(" ({})", task.date),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            ]);
-
-            ListItem::new(content)
-        })
-        .collect();
-
-    let items = List::new(items)
-        .block(Block::default().borders(Borders::ALL).title(match app.mode {
-            AppMode::Normal => "Tasks (↑↓/jk: navigate, 1/2/3: status, n: new, d: delete, r: reload, q: quit)",
-            AppMode::AddingTask => "Adding Task (Enter: save, Esc: cancel)",
-            AppMode::ConfirmDelete => "Delete task? (y/n)",
-        }))
-        .highlight_style(
-            Style::default()
-                .bg(Color::DarkGray)
-                .add_modifier(Modifier::BOLD),
-        )
-        .highlight_symbol(">> ");
-
-    f.render_stateful_widget(items, chunks[1], &mut app.list_state);
+    // Kanban board (3 columns)
+    let board_area = chunks[1];
+    render_kanban_board(f, app, board_area);
 
     // Input or Help
     match app.mode {
@@ -337,53 +378,134 @@ fn ui(f: &mut Frame, app: &mut App) {
                 );
             f.render_widget(input, chunks[2]);
         },
+        AppMode::ConfirmDelete => {
+            let confirm = Paragraph::new("Delete this task? (y/n)")
+                .style(Style::default().fg(Color::Red).add_modifier(Modifier::BOLD))
+                .block(Block::default().borders(Borders::ALL).title("Confirm"));
+            f.render_widget(confirm, chunks[2]);
+        },
         _ => {
-            let help_text = vec![
+            let help_lines = vec![
                 Line::from(vec![
-                    Span::styled(
-                        "Navigation: ",
-                        Style::default().add_modifier(Modifier::BOLD),
-                    ),
-                    Span::raw("↑/k up, ↓/j down"),
-                ]),
-                Line::from(vec![
-                    Span::styled("Status: ", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::styled("1", Style::default().fg(Color::Yellow)),
-                    Span::raw(" Not Started, "),
-                    Span::styled("2", Style::default().fg(Color::Blue)),
-                    Span::raw(" In Progress, "),
-                    Span::styled("3", Style::default().fg(Color::Green)),
-                    Span::raw(" Done"),
-                ]),
-                Line::from(vec![
+                    Span::styled("Navigate: ", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::raw("↑↓/jk (tasks) ←→/hl (columns) | "),
                     Span::styled("Actions: ", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::raw("n new task, d delete, r reload"),
+                    Span::raw("n (new) d (delete) r (reload)"),
                 ]),
                 Line::from(vec![
+                    Span::styled("Move task: ", Style::default().add_modifier(Modifier::BOLD)),
+                    Span::styled("1", Style::default().fg(Color::Yellow)),
+                    Span::raw(" Backlog "),
+                    Span::styled("2", Style::default().fg(Color::Blue)),
+                    Span::raw(" In Progress "),
+                    Span::styled("3", Style::default().fg(Color::Green)),
+                    Span::raw(" Done | "),
                     Span::styled("Exit: ", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::raw("q or Ctrl+C"),
+                    Span::raw("q/Ctrl+C"),
                 ]),
             ];
 
-            if let Some(error) = &app.error_message {
-                let mut help_with_error = help_text;
-                help_with_error.insert(
-                    0,
-                    Line::from(vec![Span::styled(
-                        error,
-                        Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
-                    )]),
-                );
-                let help = Paragraph::new(help_with_error)
+            let help_widget = if let Some(error) = &app.error_message {
+                let mut lines = vec![Line::from(vec![Span::styled(
+                    error,
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                )])];
+                lines.extend(help_lines);
+                Paragraph::new(lines)
                     .block(Block::default().borders(Borders::ALL).title("Help"))
-                    .wrap(Wrap { trim: true });
-                f.render_widget(help, chunks[2]);
+                    .wrap(Wrap { trim: true })
             } else {
-                let help = Paragraph::new(help_text)
+                Paragraph::new(help_lines)
                     .block(Block::default().borders(Borders::ALL).title("Help"))
-                    .wrap(Wrap { trim: true });
-                f.render_widget(help, chunks[2]);
-            }
+                    .wrap(Wrap { trim: true })
+            };
+
+            f.render_widget(help_widget, chunks[2]);
         },
+    }
+}
+
+fn render_kanban_board(f: &mut Frame, app: &App, area: Rect) {
+    let columns_layout = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(33),
+            Constraint::Percentage(33),
+            Constraint::Percentage(34),
+        ])
+        .split(area);
+
+    let grouped = app.get_grouped_tasks();
+    let columns = [
+        (Status::NotStarted, "🚀 BACKLOG", Color::Yellow, 0),
+        (Status::InProgress, "⏳ IN PROGRESS", Color::Blue, 1),
+        (Status::Done, "✅ DONE", Color::Green, 2),
+    ];
+
+    for (status, title, color, col_idx) in columns {
+        let tasks = grouped.get(&status).cloned().unwrap_or_default();
+
+        let items: Vec<ListItem> = tasks
+            .iter()
+            .enumerate()
+            .map(|(idx, task)| {
+                let is_selected = app.selected_column == col_idx && app.selected_row == idx;
+
+                let id_text = format!("[{}]", task.id);
+                let date_text = if !task.date.is_empty() {
+                    format!(" {}", task.date)
+                } else {
+                    String::new()
+                };
+
+                let content = vec![
+                    Line::from(vec![
+                        Span::styled(id_text.clone(), Style::default().fg(Color::DarkGray)),
+                        Span::raw(" "),
+                        Span::styled(
+                            task.description.clone(),
+                            if is_selected {
+                                Style::default().add_modifier(Modifier::BOLD)
+                            } else {
+                                Style::default()
+                            },
+                        ),
+                    ]),
+                    Line::from(vec![Span::styled(
+                        date_text.clone(),
+                        Style::default().fg(Color::DarkGray),
+                    )]),
+                ];
+
+                let item = ListItem::new(content);
+                if is_selected {
+                    item.style(Style::default().bg(Color::DarkGray))
+                } else {
+                    item
+                }
+            })
+            .collect();
+
+        let is_active_column = app.selected_column == col_idx;
+        let block = Block::default()
+            .borders(Borders::ALL)
+            .title(Span::styled(
+                title,
+                Style::default()
+                    .fg(color)
+                    .add_modifier(if is_active_column {
+                        Modifier::BOLD | Modifier::UNDERLINED
+                    } else {
+                        Modifier::BOLD
+                    }),
+            ))
+            .border_style(if is_active_column {
+                Style::default().fg(color)
+            } else {
+                Style::default()
+            });
+
+        let list = List::new(items).block(block);
+        f.render_widget(list, columns_layout[col_idx]);
     }
 }

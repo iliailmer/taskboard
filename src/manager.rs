@@ -62,7 +62,6 @@ impl Mngr {
             Ok(())
         })?;
 
-        println!("{} {}", "Added task:".green(), format!("{task}").yellow());
         Ok(())
     }
 
@@ -107,7 +106,6 @@ impl Mngr {
                         let today = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
                         let task = Task::new(id, status, new_description, today);
                         updated_lines.push(task.to_file_string());
-                        println!("{} {}", "Updated task:".green(), format!("{task}").yellow());
                     } else {
                         updated_lines.push(line);
                     }
@@ -347,7 +345,6 @@ impl Mngr {
             Ok(())
         })?;
 
-        println!("{}", format!("Deleted task with ID {}", id).yellow());
         Ok(())
     }
 

@@ -35,7 +35,7 @@ fn main() {
         eprintln!("Using tasklist file: {}", tasklist_path);
     }
 
-    let mngr = Mngr::new(tasklist_path, Some(project_title));
+    let mngr = Mngr::new(tasklist_path.clone(), Some(project_title));
 
     let result = match args.command {
         Some(Commands::Add { description }) => mngr.add_task(description),
@@ -47,7 +47,20 @@ fn main() {
         Some(Commands::Show { kanban }) => mngr.list_tasks(kanban),
         Some(Commands::Delete { id }) => mngr.delete_task(id),
         Some(Commands::Tui) => tui::run(mngr),
-        None => mngr.list_tasks(args.kanban), // Default: show tasks
+        None => {
+            // Default: show tasks, but check if file exists first
+            if !PathBuf::from(&tasklist_path).exists() {
+                println!("No tasklist file found at: {}", tasklist_path);
+                println!("\nGet started by adding your first task:");
+                println!("  tsk add \"My first task\"");
+                println!("\nOr run in interactive mode:");
+                println!("  tsk tui");
+                println!("\nFor more options:");
+                println!("  tsk --help");
+                return;
+            }
+            mngr.list_tasks(args.kanban)
+        },
     };
 
     if let Err(e) = result {
