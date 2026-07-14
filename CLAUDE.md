@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-`taskboard-rs` is a fast, reliable CLI/TUI task manager with atomic file operations and file locking. The binary is named `tsk`.
+`taskboard` is a fast, reliable CLI/TUI task manager with atomic file operations and file locking. The binary is named `tsk`.
 
 **Platform Support:** Linux and macOS (file locking uses the Rust standard library; Windows is expected to work but is untested)
 

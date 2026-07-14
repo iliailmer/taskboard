@@ -8,8 +8,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Changed
-- **Package Renamed**: Crate renamed to `taskboard-rs`, binary renamed to `tsk`
-  - Install with: `cargo install taskboard-rs`
+- **Package Renamed**: Crate renamed to `taskboard`, binary renamed to `tsk`
+  - Install with: `cargo install taskboard`
   - Run with: `tsk` (previously `tuibrd`)
   - Shorter, more convenient binary name for daily use
 

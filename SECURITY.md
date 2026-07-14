@@ -2,7 +2,7 @@
 
 ## Reporting Security Vulnerabilities
 
-If you discover a security vulnerability in taskboard-rs, please report it by:
+If you discover a security vulnerability in taskboard, please report it by:
 
 1. **Email**: Contact the maintainer directly (see `Cargo.toml` for contact info)
 2. **GitHub**: Open a security advisory at <https://github.com/iliailmer/board-rs/security/advisories>
@@ -18,7 +18,7 @@ We aim to respond within 48 hours and provide a fix within 7 days for critical i
 **Security Rating**: 8.5/10 - Very Good
 **Risk Level**: LOW for personal/team use
 
-taskboard-rs is a secure, well-designed CLI/TUI task manager built with Rust. The codebase leverages Rust's memory safety guarantees and implements proper file locking and atomic operations. No critical vulnerabilities were found during comprehensive security analysis.
+taskboard is a secure, well-designed CLI/TUI task manager built with Rust. The codebase leverages Rust's memory safety guarantees and implements proper file locking and atomic operations. No critical vulnerabilities were found during comprehensive security analysis.
 
 ---
 
@@ -525,7 +525,7 @@ Before submitting PRs that touch file operations or user input:
 
 ## Conclusion
 
-**taskboard-rs is secure for personal and team use.** The codebase demonstrates:
+**taskboard is secure for personal and team use.** The codebase demonstrates:
 
 ✅ Excellent use of Rust's memory safety guarantees
 ✅ Proper atomic file operations with locking
