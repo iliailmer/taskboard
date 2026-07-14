@@ -1,1 +1,5 @@
 /target
+.DS_Store
+.tasklist
+.tasklist.lock
+git-release-cheatsheet.md

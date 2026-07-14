@@ -1,6 +1,5 @@
 use crate::task::{Status, Task};
 use colored::Colorize;
-use fs2::FileExt;
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, BufWriter, Error, Write};
 use std::path::Path;
@@ -22,6 +21,9 @@ impl Mngr {
     }
 
     pub fn add_task(&self, description: String) -> Result<(), Error> {
+        let _lock = self.acquire_write_lock()?;
+
+        let description = Self::sanitize_description(&description);
         if description.is_empty() {
             return Err(Error::new(
                 std::io::ErrorKind::InvalidInput,
@@ -71,6 +73,9 @@ impl Mngr {
         status: Status,
         description: Option<String>,
     ) -> Result<(), Error> {
+        let _lock = self.acquire_write_lock()?;
+
+        let description = description.map(|d| Self::sanitize_description(&d));
         let (max_id, has_metadata) = self.read_metadata()?;
 
         let tasklist = OpenOptions::new()
@@ -144,15 +149,17 @@ impl Mngr {
     }
 
     pub fn get_tasks(&self) -> Result<Vec<Task>, Error> {
-        let tasklist = OpenOptions::new()
-            .read(true)
-            .open(&self.tasklist_path)
-            .map_err(|e| {
-                Error::new(
+        // A missing file is an empty task list, not an error
+        let tasklist = match OpenOptions::new().read(true).open(&self.tasklist_path) {
+            Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(vec![]),
+            Err(e) => {
+                return Err(Error::new(
                     e.kind(),
                     format!("Could not read task list {}: {}", self.tasklist_path, e),
-                )
-            })?;
+                ));
+            },
+        };
         let reader = BufReader::new(&tasklist);
         let mut tasks: Vec<Task> = vec![];
         for line in reader.lines() {
@@ -247,8 +254,14 @@ impl Mngr {
                         let id_prefix = format!("[{}] ", task.id);
                         let desc_max_len = column_width.saturating_sub(id_prefix.len() + 3);
 
-                        let truncated = if task.description.len() > desc_max_len {
-                            format!("{}...", &task.description[..desc_max_len.saturating_sub(3)])
+                        // Truncate on char boundaries: byte slicing panics on multi-byte chars
+                        let truncated = if task.description.chars().count() > desc_max_len {
+                            let cut: String = task
+                                .description
+                                .chars()
+                                .take(desc_max_len.saturating_sub(3))
+                                .collect();
+                            format!("{}...", cut)
                         } else {
                             task.description.clone()
                         };
@@ -286,6 +299,8 @@ impl Mngr {
     }
 
     pub fn delete_task(&self, id: i32) -> Result<(), Error> {
+        let _lock = self.acquire_write_lock()?;
+
         let (max_id, has_metadata) = self.read_metadata()?;
 
         let tasklist = OpenOptions::new()
@@ -346,6 +361,37 @@ impl Mngr {
         })?;
 
         Ok(())
+    }
+
+    // Tabs and newlines would break the tab-separated, line-based file format
+    fn sanitize_description(description: &str) -> String {
+        description
+            .replace(['\t', '\n', '\r'], " ")
+            .trim()
+            .to_string()
+    }
+
+    // Serializes read-modify-write cycles across processes. The lock lives on a
+    // sidecar file (never renamed or deleted) because locking the tasklist itself
+    // is unsound with rename-replace: a waiter can end up holding a lock on the
+    // old, already-replaced inode. Released when the returned handle is dropped.
+    fn acquire_write_lock(&self) -> Result<File, Error> {
+        let lock_path = format!("{}.lock", self.tasklist_path);
+        let lock_file = OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(|e| {
+                Error::new(
+                    e.kind(),
+                    format!("Failed to open lock file {}: {}", lock_path, e),
+                )
+            })?;
+        lock_file
+            .lock()
+            .map_err(|e| Error::other(format!("Failed to lock {}: {}", lock_path, e)))?;
+        Ok(lock_file)
     }
 
     fn read_metadata(&self) -> Result<(i32, bool), Error> {
@@ -411,20 +457,12 @@ impl Mngr {
             .tempfile_in(parent)
             .map_err(|e| Error::new(e.kind(), format!("Failed to create temporary file: {}", e)))?;
 
-        // Get the file handle and lock it exclusively
-        let file = temp_file.as_file();
-        file.lock_exclusive()
-            .map_err(|e| Error::other(format!("Failed to lock temporary file: {}", e)))?;
-
         // Write to the temporary file
         {
-            let mut writer = BufWriter::new(file);
+            let mut writer = BufWriter::new(temp_file.as_file());
             write_fn(&mut writer)?;
             writer.flush()?;
         } // Writer dropped here, releasing the file reference
-
-        // Unlock the file
-        temp_file.as_file().unlock().ok();
 
         // Atomically replace the original file
         temp_file

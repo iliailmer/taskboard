@@ -35,8 +35,15 @@ pub enum Commands {
     #[command(about = "Add a new task")]
     #[clap(visible_alias = "a")]
     Add {
-        #[arg(short, long)]
-        description: String,
+        #[arg(
+            value_name = "DESCRIPTION",
+            help = "Task description",
+            required_unless_present = "description",
+            conflicts_with = "description"
+        )]
+        text: Option<String>,
+        #[arg(short, long, help = "Task description (flag form)")]
+        description: Option<String>,
     },
     #[command(about = "Update an existing task")]
     #[clap(visible_alias = "u")]
