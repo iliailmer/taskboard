@@ -1,9 +1,9 @@
 # taskboard
 
-[![CI](https://github.com/iliailmer/board-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/iliailmer/board-rs/actions/workflows/ci.yml)
+[![CI](https://github.com/iliailmer/taskboard/actions/workflows/ci.yml/badge.svg)](https://github.com/iliailmer/taskboard/actions/workflows/ci.yml)
 [![Crates.io](https://img.shields.io/crates/v/taskboard.svg)](https://crates.io/crates/taskboard)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![codecov](https://codecov.io/gh/iliailmer/board-rs/branch/main/graph/badge.svg)](https://codecov.io/gh/iliailmer/board-rs)
+[![codecov](https://codecov.io/gh/iliailmer/taskboard/branch/main/graph/badge.svg)](https://codecov.io/gh/iliailmer/taskboard)
 
 > > [!WARNING]
 > > This project is still in early development and mostly considered a learning experiment.

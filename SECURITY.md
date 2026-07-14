@@ -5,7 +5,7 @@
 If you discover a security vulnerability in taskboard, please report it by:
 
 1. **Email**: Contact the maintainer directly (see `Cargo.toml` for contact info)
-2. **GitHub**: Open a security advisory at <https://github.com/iliailmer/board-rs/security/advisories>
+2. **GitHub**: Open a security advisory at <https://github.com/iliailmer/taskboard/security/advisories>
 3. **Do not** open public issues for security vulnerabilities
 
 We aim to respond within 48 hours and provide a fix within 7 days for critical issues.
