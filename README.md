@@ -5,6 +5,9 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/iliailmer/board-rs/branch/main/graph/badge.svg)](https://codecov.io/gh/iliailmer/board-rs)
 
+> > [!WARNING]
+> > This project is still in early development and mostly considered a learning experiment.
+
 A fast, reliable command-line task manager written in Rust with atomic file operations and file locking.
 
 ## Features
