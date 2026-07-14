@@ -7,18 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [0.2.0] - 2026-07-13
+
+First release published to crates.io.
+
 ### Changed
 - **Package Renamed**: Crate renamed to `taskboard`, binary renamed to `tsk`
   - Install with: `cargo install taskboard`
   - Run with: `tsk` (previously `tuibrd`)
-  - Shorter, more convenient binary name for daily use
+  - Repository renamed to `iliailmer/taskboard`
+- **Platform Support**: Linux and macOS (Windows is expected to work but is untested)
+- Replaced the unmaintained `fs2` crate with `std::fs::File::lock` (Rust 1.89+)
+- Descriptions are sanitized before writing: tabs/newlines become spaces
+- `tsk show` with a missing task file now shows an empty list instead of an error
+
+### Added
+- **TUI Task Editing**: press `e` to edit the selected task's description
+- **Positional add**: `tsk add "Task description"` now works (alongside `-d`)
+- 7 new integration tests (22 total), including a concurrency stress test
+
+### Fixed
+- **Concurrent writes could lose tasks**: writers now serialize on a sidecar
+  lockfile (`<tasklist>.lock`) held across the whole read-modify-write
+- **`--file` with a new path silently fell back** to the default; it is now
+  honored, with a clear error if the parent directory does not exist
+- **TUI could leave the terminal in raw mode** if startup failed; errors now
+  propagate to exit code 1 with the terminal restored
+- **Kanban view panicked** when truncating multi-byte (emoji) descriptions
 
 ### Previous Changes
 - **Package Renamed**: Crate and binary renamed from `tasklist` to `tuibrd`
-  - Repository moved to `iliailmer/board-rs`
-- **Platform Support**: Dropped Windows support
-  - Now supports Linux and macOS only
-  - Simplified CI and testing infrastructure
 
 ---
 
@@ -199,7 +219,8 @@ This project follows [Semantic Versioning](https://semver.org/):
 
 ---
 
-[0.8.0]: https://github.com/iliailmer/board-rs/compare/v0.7.0...v0.8.0
-[0.7.0]: https://github.com/iliailmer/board-rs/compare/v0.6.1...v0.7.0
-[0.6.1]: https://github.com/iliailmer/board-rs/compare/v0.6.0...v0.6.1
-[0.6.0]: https://github.com/iliailmer/board-rs/releases/tag/v0.6.0
+[0.2.0]: https://github.com/iliailmer/taskboard/releases/tag/v0.2.0
+[0.8.0]: https://github.com/iliailmer/taskboard/compare/v0.7.0...v0.8.0
+[0.7.0]: https://github.com/iliailmer/taskboard/compare/v0.6.1...v0.7.0
+[0.6.1]: https://github.com/iliailmer/taskboard/compare/v0.6.0...v0.6.1
+[0.6.0]: https://github.com/iliailmer/taskboard/releases/tag/v0.6.0

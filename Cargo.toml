@@ -1,13 +1,13 @@
 [package]
 name = "taskboard"
-version = "0.1.1"
+version = "0.2.0"
 rust-version = "1.92.0"
 edition = "2024"
 authors = ["Ilia Ilmer <contact@iliailmer.com>"]
 description = "A fast, reliable CLI/TUI task board with atomic operations and file locking"
 readme = "README.md"
-homepage = "https://github.com/iliailmer/board-rs"
-repository = "https://github.com/iliailmer/board-rs"
+homepage = "https://github.com/iliailmer/taskboard"
+repository = "https://github.com/iliailmer/taskboard"
 license = "MIT"
 keywords = ["cli", "todo", "task", "productivity", "kanban"]
 categories = ["command-line-utilities"]
