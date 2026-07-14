@@ -21,12 +21,12 @@ A fast, reliable command-line task manager written in Rust with atomic file oper
 
 ## Installation
 
-**Platform Support:** Linux and macOS only
+**Platform Support:** Linux and macOS (Windows is expected to work but is untested)
 
 ### From crates.io
 
 ```bash
-cargo install taskboard-rs
+cargo install tsk
 ```
 
 ### From Source
@@ -44,8 +44,9 @@ cargo install --path .
 tsk
 
 # Add a task
-tsk add -d "Task description"
-tsk a -d "Task description"  # short alias
+tsk add "Task description"
+tsk a "Task description"       # short alias
+tsk add -d "Task description"  # flag form also works
 
 # Update task status
 tsk update --id 1 --status in_progress
@@ -81,6 +82,7 @@ tsk tui
 - `↑/k` and `↓/j` - Navigate tasks
 - `1/2/3` - Change status (Not Started/In Progress/Done)
 - `n` - Add new task
+- `e` - Edit selected task's description
 - `d` - Delete task
 - `r` - Reload tasks
 - `q` or Ctrl+C - Quit

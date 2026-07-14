@@ -30,6 +30,7 @@ pub struct App {
 enum AppMode {
     Normal,
     AddingTask,
+    EditingTask { id: i32, status: Status },
     ConfirmDelete,
 }
 
@@ -216,9 +217,24 @@ impl App {
         }
         Ok(())
     }
+
+    fn save_edited_task(&mut self, id: i32, status: Status) -> io::Result<()> {
+        if !self.input.trim().is_empty() {
+            self.manager
+                .update_task(id, status, Some(self.input.clone()))
+                .map_err(io::Error::other)?;
+        }
+        self.input.clear();
+        self.mode = AppMode::Normal;
+        self.reload_tasks()
+    }
 }
 
 pub fn run(manager: Mngr) -> io::Result<()> {
+    // Create the app before touching the terminal so a failure here
+    // can't leave the terminal in raw mode
+    let app = App::new(manager)?;
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -226,8 +242,6 @@ pub fn run(manager: Mngr) -> io::Result<()> {
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    // Create app and run
-    let app = App::new(manager)?;
     let res = run_app(&mut terminal, app);
 
     // Restore terminal
@@ -239,11 +253,7 @@ pub fn run(manager: Mngr) -> io::Result<()> {
     )?;
     terminal.show_cursor()?;
 
-    if let Err(err) = res {
-        eprintln!("Error: {}", err);
-    }
-
-    Ok(())
+    res
 }
 
 fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<()> {
@@ -265,6 +275,15 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                         app.mode = AppMode::AddingTask;
                         app.input.clear();
                         app.error_message = None;
+                    },
+                    KeyCode::Char('e') => {
+                        if let Some(task) = app.get_selected_task() {
+                            let id = task.id;
+                            let status = task.status;
+                            app.input = task.description.clone();
+                            app.mode = AppMode::EditingTask { id, status };
+                            app.error_message = None;
+                        }
                     },
                     KeyCode::Char('d') => {
                         if app.get_selected_task().is_some() {
@@ -299,6 +318,26 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                 AppMode::AddingTask => match key.code {
                     KeyCode::Enter => {
                         if let Err(e) = app.add_task() {
+                            app.error_message = Some(format!("Error: {}", e));
+                            app.mode = AppMode::Normal;
+                        }
+                    },
+                    KeyCode::Esc => {
+                        app.mode = AppMode::Normal;
+                        app.input.clear();
+                        app.error_message = None;
+                    },
+                    KeyCode::Char(c) => {
+                        app.input.push(c);
+                    },
+                    KeyCode::Backspace => {
+                        app.input.pop();
+                    },
+                    _ => {},
+                },
+                AppMode::EditingTask { id, status } => match key.code {
+                    KeyCode::Enter => {
+                        if let Err(e) = app.save_edited_task(id, status) {
                             app.error_message = Some(format!("Error: {}", e));
                             app.mode = AppMode::Normal;
                         }
@@ -368,14 +407,15 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Input or Help
     match app.mode {
-        AppMode::AddingTask => {
+        AppMode::AddingTask | AppMode::EditingTask { .. } => {
+            let title = if matches!(app.mode, AppMode::AddingTask) {
+                "New Task Description"
+            } else {
+                "Edit Task Description"
+            };
             let input = Paragraph::new(app.input.as_str())
                 .style(Style::default().fg(Color::Yellow))
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .title("New Task Description"),
-                );
+                .block(Block::default().borders(Borders::ALL).title(title));
             f.render_widget(input, chunks[2]);
         },
         AppMode::ConfirmDelete => {
@@ -390,7 +430,7 @@ fn ui(f: &mut Frame, app: &mut App) {
                     Span::styled("Navigate: ", Style::default().add_modifier(Modifier::BOLD)),
                     Span::raw("↑↓/jk (tasks) ←→/hl (columns) | "),
                     Span::styled("Actions: ", Style::default().add_modifier(Modifier::BOLD)),
-                    Span::raw("n (new) d (delete) r (reload)"),
+                    Span::raw("n (new) e (edit) d (delete) r (reload)"),
                 ]),
                 Line::from(vec![
                     Span::styled("Move task: ", Style::default().add_modifier(Modifier::BOLD)),

@@ -409,6 +409,176 @@ fn test_kanban_shows_dates() {
 }
 
 #[test]
+fn test_file_flag_with_new_path_is_honored() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+    let target = temp_path.join("newlist");
+
+    let output = run_command(
+        &temp_path,
+        &[
+            "--file",
+            target.to_str().unwrap(),
+            "add",
+            "--description",
+            "X",
+        ],
+    );
+    assert!(
+        output.status.success(),
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(target.exists(), "Task list not created at --file path");
+    assert!(
+        !temp_path.join(".tasklist").exists(),
+        "Silently fell back to ./.tasklist"
+    );
+}
+
+#[test]
+fn test_file_flag_with_missing_parent_dir_errors() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+    let target = temp_path.join("no_such_dir").join("newlist");
+
+    let output = run_command(
+        &temp_path,
+        &[
+            "--file",
+            target.to_str().unwrap(),
+            "add",
+            "--description",
+            "X",
+        ],
+    );
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("does not exist"), "stderr: {}", stderr);
+}
+
+#[test]
+fn test_add_with_positional_description() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+
+    let output = run_command(
+        &temp_path,
+        &["--file", ".tasklist", "add", "Positional task"],
+    );
+    assert!(
+        output.status.success(),
+        "{:?}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let content = fs::read_to_string(temp_path.join(".tasklist")).unwrap();
+    assert!(content.contains("Positional task"));
+
+    // Both positional and -d is an error
+    let output = run_command(
+        &temp_path,
+        &["--file", ".tasklist", "add", "pos", "--description", "flag"],
+    );
+    assert!(!output.status.success());
+
+    // Neither is an error
+    let output = run_command(&temp_path, &["--file", ".tasklist", "add"]);
+    assert!(!output.status.success());
+}
+
+#[test]
+fn test_description_tabs_and_newlines_sanitized() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+
+    let output = run_command(
+        &temp_path,
+        &[
+            "--file",
+            ".tasklist",
+            "add",
+            "--description",
+            "part1\tpart2\npart3",
+        ],
+    );
+    assert!(output.status.success());
+
+    let content = fs::read_to_string(temp_path.join(".tasklist")).unwrap();
+    let task_line = content.lines().find(|l| !l.starts_with('#')).unwrap();
+    assert_eq!(
+        task_line.split('\t').count(),
+        4,
+        "Embedded separators corrupted the row: {:?}",
+        task_line
+    );
+    assert!(task_line.contains("part1 part2 part3"));
+}
+
+#[test]
+fn test_kanban_with_long_emoji_description_does_not_panic() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+
+    let long_emoji = "🎉".repeat(60);
+    let output = run_command(
+        &temp_path,
+        &["--file", ".tasklist", "add", "--description", &long_emoji],
+    );
+    assert!(output.status.success());
+
+    let output = run_command(&temp_path, &["--file", ".tasklist", "show", "--kanban"]);
+    assert!(
+        output.status.success(),
+        "kanban panicked: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn test_show_with_missing_file_is_friendly() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+
+    let output = run_command(&temp_path, &["--file", "nothere.tasklist", "show"]);
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("No tasks found"));
+}
+
+#[test]
+fn test_concurrent_adds_do_not_lose_tasks() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+    let manifest_dir = env!("CARGO_MANIFEST_DIR");
+    let binary_path = format!("{}/target/debug/tsk", manifest_dir);
+
+    let children: Vec<_> = (1..=8)
+        .map(|i| {
+            std::process::Command::new(&binary_path)
+                .args([
+                    "--file",
+                    ".tasklist",
+                    "add",
+                    "--description",
+                    &format!("Concurrent {}", i),
+                ])
+                .current_dir(&temp_path)
+                .spawn()
+                .expect("Failed to spawn command")
+        })
+        .collect();
+    for mut child in children {
+        assert!(child.wait().unwrap().success());
+    }
+
+    let content = fs::read_to_string(temp_path.join(".tasklist")).unwrap();
+    let task_count = content.lines().filter(|l| !l.starts_with('#')).count();
+    assert_eq!(task_count, 8, "Tasks lost under concurrency:\n{}", content);
+    assert!(content.starts_with("#max_id=8"), "Content: {}", content);
+}
+
+#[test]
 fn test_atomic_write_prevents_corruption() {
     let temp_dir = TempDir::new().unwrap();
     let temp_path = temp_dir.path().to_path_buf();

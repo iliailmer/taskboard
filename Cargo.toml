@@ -22,7 +22,6 @@ chrono = "0.4.41"
 clap = { version = "4.5.30", features = ["derive"] }
 colored = "3.0.0"
 crossterm = "0.28"
-fs2 = "0.4"
 home = "0.5.11"
 ratatui = "0.29"
 tabled = "0.18.0"
