@@ -1,3 +1,4 @@
+use serde_json::Value;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -15,16 +16,23 @@ fn run_command(temp_dir: &PathBuf, args: &[&str]) -> std::process::Output {
         .expect("Failed to run command")
 }
 
+fn read_json(temp_dir: &PathBuf) -> Value {
+    let output = run_command(temp_dir, &["--file", ".tasklist", "show", "--json"]);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    serde_json::from_slice(&output.stdout).unwrap()
+}
+
 #[test]
 fn test_add_task_creates_metadata() {
     let temp_dir = TempDir::new().unwrap();
     let temp_path = temp_dir.path().to_path_buf();
 
     // Add a task using relative path (will be created in temp_dir)
-    let output = run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "First task"],
-    );
+    let output = run_command(&temp_path, &["--file", ".tasklist", "add", "First task"]);
 
     assert!(
         output.status.success(),
@@ -51,16 +59,10 @@ fn test_add_multiple_tasks_increments_id() {
     let temp_path = temp_dir.path().to_path_buf();
 
     // Add first task
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Task 1"],
-    );
+    run_command(&temp_path, &["--file", ".tasklist", "add", "Task 1"]);
 
     // Add second task
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Task 2"],
-    );
+    run_command(&temp_path, &["--file", ".tasklist", "add", "Task 2"]);
 
     // Verify max_id is 2
     let tasklist_path = temp_path.join(".tasklist");
@@ -78,18 +80,13 @@ fn test_add_multiple_tasks_increments_id() {
 fn test_update_task_preserves_metadata() {
     let temp_dir = TempDir::new().unwrap();
     let temp_path = temp_dir.path().to_path_buf();
+    let tasklist_path = temp_path.join(".tasklist");
 
-    // Add a task
-    run_command(
-        &temp_path,
-        &[
-            "--file",
-            ".tasklist",
-            "add",
-            "--description",
-            "Original task",
-        ],
-    );
+    fs::write(
+        &tasklist_path,
+        "#max_id=1\n1\t🚀 Not Started\tOriginal task\t2025-01-01 10:00\n",
+    )
+    .unwrap();
 
     // Update the task
     let output = run_command(
@@ -108,10 +105,11 @@ fn test_update_task_preserves_metadata() {
     assert!(output.status.success());
 
     // Verify metadata is preserved
-    let tasklist_path = temp_path.join(".tasklist");
     let content = fs::read_to_string(&tasklist_path).unwrap();
     assert!(content.starts_with("#max_id=1"));
     assert!(content.contains("In Progress"));
+    let task_line = content.lines().find(|line| !line.starts_with('#')).unwrap();
+    assert_eq!(task_line.split('\t').count(), 5);
 }
 
 #[test]
@@ -120,10 +118,7 @@ fn test_update_nonexistent_task_fails() {
     let temp_path = temp_dir.path().to_path_buf();
 
     // Add a task
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Task 1"],
-    );
+    run_command(&temp_path, &["--file", ".tasklist", "add", "Task 1"]);
 
     // Try to update non-existent task
     let output = run_command(
@@ -148,16 +143,14 @@ fn test_update_nonexistent_task_fails() {
 fn test_delete_task_preserves_metadata() {
     let temp_dir = TempDir::new().unwrap();
     let temp_path = temp_dir.path().to_path_buf();
+    let tasklist_path = temp_path.join(".tasklist");
 
-    // Add two tasks
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Task 1"],
-    );
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Task 2"],
-    );
+    fs::write(
+        &tasklist_path,
+        "#max_id=2\n1\t🚀 Not Started\tTask 1\t2025-01-01 10:00\n\
+         2\t✅ Done\tTask 2\t2025-01-01 11:00\n",
+    )
+    .unwrap();
 
     // Delete first task
     let output = run_command(&temp_path, &["--file", ".tasklist", "delete", "--id", "1"]);
@@ -165,11 +158,12 @@ fn test_delete_task_preserves_metadata() {
     assert!(output.status.success());
 
     // Verify metadata is preserved
-    let tasklist_path = temp_path.join(".tasklist");
     let content = fs::read_to_string(&tasklist_path).unwrap();
     assert!(content.starts_with("#max_id=2"));
     assert!(!content.contains("Task 1"));
     assert!(content.contains("Task 2"));
+    let task_line = content.lines().find(|line| !line.starts_with('#')).unwrap();
+    assert_eq!(task_line.split('\t').count(), 5);
 }
 
 #[test]
@@ -178,10 +172,7 @@ fn test_delete_nonexistent_task_fails() {
     let temp_path = temp_dir.path().to_path_buf();
 
     // Add a task
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Task 1"],
-    );
+    run_command(&temp_path, &["--file", ".tasklist", "add", "Task 1"]);
 
     // Try to delete non-existent task
     let output = run_command(
@@ -211,13 +202,7 @@ fn test_migration_from_old_format() {
     // Add a new task (should trigger migration)
     let output = run_command(
         &temp_path,
-        &[
-            "--file",
-            ".tasklist",
-            "add",
-            "--description",
-            "New task after migration",
-        ],
+        &["--file", ".tasklist", "add", "New task after migration"],
     );
 
     assert!(output.status.success());
@@ -236,14 +221,8 @@ fn test_list_tasks_skips_metadata() {
     let temp_path = temp_dir.path().to_path_buf();
 
     // Add tasks
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Task 1"],
-    );
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Task 2"],
-    );
+    run_command(&temp_path, &["--file", ".tasklist", "add", "Task 1"]);
+    run_command(&temp_path, &["--file", ".tasklist", "add", "Task 2"]);
 
     // List tasks
     let output = run_command(&temp_path, &["--file", ".tasklist", "show"]);
@@ -278,19 +257,10 @@ fn test_kanban_view_works() {
     let temp_path = temp_dir.path().to_path_buf();
 
     // Add tasks with different statuses
+    run_command(&temp_path, &["--file", ".tasklist", "add", "Todo task"]);
     run_command(
         &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Todo task"],
-    );
-    run_command(
-        &temp_path,
-        &[
-            "--file",
-            ".tasklist",
-            "add",
-            "--description",
-            "In progress task",
-        ],
+        &["--file", ".tasklist", "add", "In progress task"],
     );
     run_command(
         &temp_path,
@@ -321,10 +291,7 @@ fn test_verbose_flag_shows_file_path() {
     let temp_path = temp_dir.path().to_path_buf();
 
     // Add a task first
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Test task"],
-    );
+    run_command(&temp_path, &["--file", ".tasklist", "add", "Test task"]);
 
     // Run with verbose flag
     let output = run_command(&temp_path, &["--file", ".tasklist", "--verbose", "show"]);
@@ -341,10 +308,7 @@ fn test_default_command_shows_tasks() {
     let temp_path = temp_dir.path().to_path_buf();
 
     // Add a task
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Test task"],
-    );
+    run_command(&temp_path, &["--file", ".tasklist", "add", "Test task"]);
 
     // Run without subcommand (should default to show)
     let output = run_command(&temp_path, &["--file", ".tasklist"]);
@@ -361,14 +325,8 @@ fn test_global_kanban_flag() {
     let temp_path = temp_dir.path().to_path_buf();
 
     // Add tasks
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Task 1"],
-    );
-    run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", "Task 2"],
-    );
+    run_command(&temp_path, &["--file", ".tasklist", "add", "Task 1"]);
+    run_command(&temp_path, &["--file", ".tasklist", "add", "Task 2"]);
 
     // Use global --kanban flag (without subcommand)
     let output = run_command(&temp_path, &["--file", ".tasklist", "--kanban"]);
@@ -389,13 +347,7 @@ fn test_kanban_shows_dates() {
     // Add a task
     run_command(
         &temp_path,
-        &[
-            "--file",
-            ".tasklist",
-            "add",
-            "--description",
-            "Task with date",
-        ],
+        &["--file", ".tasklist", "add", "Task with date"],
     );
 
     // Show in kanban view
@@ -416,13 +368,7 @@ fn test_file_flag_with_new_path_is_honored() {
 
     let output = run_command(
         &temp_path,
-        &[
-            "--file",
-            target.to_str().unwrap(),
-            "add",
-            "--description",
-            "X",
-        ],
+        &["--file", target.to_str().unwrap(), "add", "X"],
     );
     assert!(
         output.status.success(),
@@ -444,13 +390,7 @@ fn test_file_flag_with_missing_parent_dir_errors() {
 
     let output = run_command(
         &temp_path,
-        &[
-            "--file",
-            target.to_str().unwrap(),
-            "add",
-            "--description",
-            "X",
-        ],
+        &["--file", target.to_str().unwrap(), "add", "X"],
     );
     assert!(!output.status.success());
     let stderr = String::from_utf8_lossy(&output.stderr);
@@ -458,7 +398,7 @@ fn test_file_flag_with_missing_parent_dir_errors() {
 }
 
 #[test]
-fn test_add_with_positional_description() {
+fn test_add_with_positional_title_and_description() {
     let temp_dir = TempDir::new().unwrap();
     let temp_path = temp_dir.path().to_path_buf();
 
@@ -475,12 +415,14 @@ fn test_add_with_positional_description() {
     let content = fs::read_to_string(temp_path.join(".tasklist")).unwrap();
     assert!(content.contains("Positional task"));
 
-    // Both positional and -d is an error
+    // Positional title and -d description are independent
     let output = run_command(
         &temp_path,
         &["--file", ".tasklist", "add", "pos", "--description", "flag"],
     );
-    assert!(!output.status.success());
+    assert!(output.status.success());
+    let content = fs::read_to_string(temp_path.join(".tasklist")).unwrap();
+    assert!(content.contains("pos\tflag"));
 
     // Neither is an error
     let output = run_command(&temp_path, &["--file", ".tasklist", "add"]);
@@ -488,19 +430,13 @@ fn test_add_with_positional_description() {
 }
 
 #[test]
-fn test_description_tabs_and_newlines_sanitized() {
+fn test_title_tabs_and_newlines_sanitized() {
     let temp_dir = TempDir::new().unwrap();
     let temp_path = temp_dir.path().to_path_buf();
 
     let output = run_command(
         &temp_path,
-        &[
-            "--file",
-            ".tasklist",
-            "add",
-            "--description",
-            "part1\tpart2\npart3",
-        ],
+        &["--file", ".tasklist", "add", "part1\tpart2\npart3"],
     );
     assert!(output.status.success());
 
@@ -508,7 +444,7 @@ fn test_description_tabs_and_newlines_sanitized() {
     let task_line = content.lines().find(|l| !l.starts_with('#')).unwrap();
     assert_eq!(
         task_line.split('\t').count(),
-        4,
+        5,
         "Embedded separators corrupted the row: {:?}",
         task_line
     );
@@ -516,15 +452,12 @@ fn test_description_tabs_and_newlines_sanitized() {
 }
 
 #[test]
-fn test_kanban_with_long_emoji_description_does_not_panic() {
+fn test_kanban_with_long_emoji_title_does_not_panic() {
     let temp_dir = TempDir::new().unwrap();
     let temp_path = temp_dir.path().to_path_buf();
 
     let long_emoji = "🎉".repeat(60);
-    let output = run_command(
-        &temp_path,
-        &["--file", ".tasklist", "add", "--description", &long_emoji],
-    );
+    let output = run_command(&temp_path, &["--file", ".tasklist", "add", &long_emoji]);
     assert!(output.status.success());
 
     let output = run_command(&temp_path, &["--file", ".tasklist", "show", "--kanban"]);
@@ -556,13 +489,7 @@ fn test_concurrent_adds_do_not_lose_tasks() {
     let children: Vec<_> = (1..=8)
         .map(|i| {
             std::process::Command::new(&binary_path)
-                .args([
-                    "--file",
-                    ".tasklist",
-                    "add",
-                    "--description",
-                    &format!("Concurrent {}", i),
-                ])
+                .args(["--file", ".tasklist", "add", &format!("Concurrent {}", i)])
                 .current_dir(&temp_path)
                 .spawn()
                 .expect("Failed to spawn command")
@@ -587,13 +514,7 @@ fn test_atomic_write_prevents_corruption() {
     for i in 1..=5 {
         let output = run_command(
             &temp_path,
-            &[
-                "--file",
-                ".tasklist",
-                "add",
-                "--description",
-                &format!("Task {}", i),
-            ],
+            &["--file", ".tasklist", "add", &format!("Task {}", i)],
         );
         assert!(output.status.success());
     }
@@ -612,4 +533,225 @@ fn test_atomic_write_prevents_corruption() {
 
     // Should have exactly 6 lines (1 metadata + 5 tasks)
     assert_eq!(content.lines().count(), 6);
+}
+
+#[test]
+fn test_add_writes_title_and_description_as_five_fields() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+
+    let output = run_command(
+        &temp_path,
+        &[
+            "--file",
+            ".tasklist",
+            "add",
+            "--title",
+            "Ship title",
+            "--description",
+            "first line\nsecond \\ line\tend",
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let content = fs::read_to_string(temp_path.join(".tasklist")).unwrap();
+    let task_line = content.lines().find(|line| !line.starts_with('#')).unwrap();
+    let fields: Vec<_> = task_line.split('\t').collect();
+    assert_eq!(fields.len(), 5, "task row: {task_line:?}");
+    assert_eq!(fields[2], "Ship title");
+    assert_eq!(fields[3], r"first line\nsecond \\ line end");
+}
+
+#[test]
+fn test_add_requires_nonempty_sanitized_title() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+
+    let output = run_command(
+        &temp_path,
+        &["--file", ".tasklist", "add", "--title", "\t\n\r"],
+    );
+
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Task title cannot be empty"));
+}
+
+#[test]
+fn test_legacy_rows_read_and_migrate_to_five_fields() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+    let tasklist_path = temp_path.join(".tasklist");
+    fs::write(
+        &tasklist_path,
+        "#max_id=1\n1\t🚀 Not Started\tLegacy label\t2025-01-01 10:00\n",
+    )
+    .unwrap();
+
+    let output = run_command(&temp_path, &["--file", ".tasklist", "show", "--json"]);
+    assert!(output.status.success());
+    let tasks: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(tasks[0]["title"], "Legacy label");
+    assert_eq!(tasks[0]["description"], "");
+
+    let output = run_command(&temp_path, &["--file", ".tasklist", "add", "New task"]);
+    assert!(output.status.success());
+    let content = fs::read_to_string(tasklist_path).unwrap();
+    assert!(
+        content
+            .lines()
+            .filter(|line| !line.starts_with('#'))
+            .all(|line| line.split('\t').count() == 5),
+        "content: {content}"
+    );
+}
+
+#[test]
+fn test_update_fields_independently_and_rejects_noop() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+    assert!(
+        run_command(
+            &temp_path,
+            &[
+                "--file",
+                ".tasklist",
+                "add",
+                "Original",
+                "--description",
+                "Original body",
+            ],
+        )
+        .status
+        .success()
+    );
+
+    let output = run_command(
+        &temp_path,
+        &[
+            "--file",
+            ".tasklist",
+            "update",
+            "--id",
+            "1",
+            "--title",
+            "Renamed",
+        ],
+    );
+    assert!(output.status.success());
+    let tasks = read_json(&temp_path);
+    assert_eq!(tasks[0]["title"], "Renamed");
+    assert_eq!(tasks[0]["description"], "Original body");
+    assert_eq!(tasks[0]["status"], "not_started");
+
+    let output = run_command(
+        &temp_path,
+        &[
+            "--file",
+            ".tasklist",
+            "update",
+            "--id",
+            "1",
+            "--description",
+            "New body",
+        ],
+    );
+    assert!(output.status.success());
+    let tasks = read_json(&temp_path);
+    assert_eq!(tasks[0]["title"], "Renamed");
+    assert_eq!(tasks[0]["description"], "New body");
+    assert_eq!(tasks[0]["status"], "not_started");
+
+    let output = run_command(
+        &temp_path,
+        &[
+            "--file",
+            ".tasklist",
+            "update",
+            "--id",
+            "1",
+            "--status",
+            "done",
+        ],
+    );
+    assert!(output.status.success());
+    let tasks = read_json(&temp_path);
+    assert_eq!(tasks[0]["title"], "Renamed");
+    assert_eq!(tasks[0]["description"], "New body");
+    assert_eq!(tasks[0]["status"], "done");
+
+    let output = run_command(
+        &temp_path,
+        &[
+            "--file",
+            ".tasklist",
+            "update",
+            "--id",
+            "1",
+            "--status",
+            "in_progress",
+            "--title",
+            "Combined",
+            "--description",
+            "Combined body",
+        ],
+    );
+    assert!(output.status.success());
+    let tasks = read_json(&temp_path);
+    assert_eq!(tasks[0]["title"], "Combined");
+    assert_eq!(tasks[0]["description"], "Combined body");
+    assert_eq!(tasks[0]["status"], "in_progress");
+
+    let output = run_command(
+        &temp_path,
+        &[
+            "--file",
+            ".tasklist",
+            "update",
+            "--id",
+            "1",
+            "--description",
+            "",
+        ],
+    );
+    assert!(output.status.success());
+    let tasks = read_json(&temp_path);
+    assert_eq!(tasks[0]["description"], "");
+
+    let output = run_command(&temp_path, &["--file", ".tasklist", "update", "--id", "1"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Nothing to update"));
+}
+
+#[test]
+fn test_json_round_trips_multiline_and_special_characters() {
+    let temp_dir = TempDir::new().unwrap();
+    let temp_path = temp_dir.path().to_path_buf();
+    let title = "Quote \" and 🎉";
+    let description = "first\nsecond \\ \"quoted\"";
+    assert!(
+        run_command(
+            &temp_path,
+            &[
+                "--file",
+                ".tasklist",
+                "add",
+                title,
+                "--description",
+                description,
+            ],
+        )
+        .status
+        .success()
+    );
+
+    let output = run_command(&temp_path, &["--file", ".tasklist", "show", "--json"]);
+    assert!(output.status.success());
+    let tasks: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(tasks[0]["status"], "not_started");
+    assert_eq!(tasks[0]["title"], title);
+    assert_eq!(tasks[0]["description"], description);
 }

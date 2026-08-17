@@ -20,16 +20,17 @@ impl Mngr {
         }
     }
 
-    pub fn add_task(&self, description: String) -> Result<(), Error> {
+    pub fn add_task(&self, title: String, description: String) -> Result<(), Error> {
         let _lock = self.acquire_write_lock()?;
 
-        let description = Self::sanitize_description(&description);
-        if description.is_empty() {
+        let title = Self::sanitize_title(&title);
+        if title.is_empty() {
             return Err(Error::new(
                 std::io::ErrorKind::InvalidInput,
-                "Task description cannot be empty",
+                "Task title cannot be empty",
             ));
         }
+        let description = Self::sanitize_description(&description);
 
         let (mut max_id, has_metadata) = self.read_metadata()?;
 
@@ -44,14 +45,17 @@ impl Mngr {
                 let line =
                     line.map_err(|e| Error::new(e.kind(), format!("Failed to read line: {}", e)))?;
                 if !line.starts_with("#") && !line.is_empty() {
-                    existing_tasks.push(line);
+                    let migrated = Task::from_file_line(&line)
+                        .map(|task| task.to_file_string())
+                        .unwrap_or(line);
+                    existing_tasks.push(migrated);
                 }
             }
         }
 
         let new_id = max_id + 1;
         let today = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
-        let task = Task::new(new_id, Status::NotStarted, description.clone(), today);
+        let task = Task::new(new_id, Status::NotStarted, title, description, today);
 
         self.atomic_write(|writer| {
             self.write_metadata(writer, new_id)?;
@@ -70,11 +74,25 @@ impl Mngr {
     pub fn update_task(
         &self,
         id: i32,
-        status: Status,
+        status: Option<Status>,
+        title: Option<String>,
         description: Option<String>,
     ) -> Result<(), Error> {
         let _lock = self.acquire_write_lock()?;
 
+        if status.is_none() && title.is_none() && description.is_none() {
+            return Err(Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Nothing to update",
+            ));
+        }
+        let title = title.map(|value| Self::sanitize_title(&value));
+        if title.as_ref().is_some_and(String::is_empty) {
+            return Err(Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "Task title cannot be empty",
+            ));
+        }
         let description = description.map(|d| Self::sanitize_description(&d));
         let (max_id, has_metadata) = self.read_metadata()?;
 
@@ -101,22 +119,15 @@ impl Mngr {
                 continue;
             }
 
-            let parts: Vec<&str> = line.split("\t").collect();
-            if parts.len() >= 3 {
-                if let Ok(task_id) = parts[0].parse::<i32>() {
-                    if task_id == id {
-                        task_found = true;
-                        let new_description =
-                            String::from(description.as_deref().unwrap_or(parts[2]));
-                        let today = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
-                        let task = Task::new(id, status, new_description, today);
-                        updated_lines.push(task.to_file_string());
-                    } else {
-                        updated_lines.push(line);
-                    }
-                } else {
-                    updated_lines.push(line);
+            if let Some(mut task) = Task::from_file_line(&line) {
+                if task.id == id {
+                    task_found = true;
+                    task.status = status.unwrap_or(task.status);
+                    task.title = title.clone().unwrap_or(task.title);
+                    task.description = description.clone().unwrap_or(task.description);
+                    task.date = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
                 }
+                updated_lines.push(task.to_file_string());
             } else if !line.is_empty() {
                 updated_lines.push(line);
             }
@@ -168,29 +179,25 @@ impl Mngr {
             if line.starts_with("#") {
                 continue;
             }
-            let parts: Vec<&str> = line.split("\t").collect();
-            if parts.len() >= 3
-                && let Ok(id) = parts[0].parse::<i32>()
-            {
-                let status = Status::from_str(parts[1]);
-                let today = String::from(match parts.get(3) {
-                    Some(x) => x,
-                    None => "",
-                });
-                let task = Task::new(id, status, parts[2].to_string(), today);
+            if let Some(task) = Task::from_file_line(&line) {
                 tasks.push(task);
             }
         }
         Ok(tasks)
     }
 
-    pub fn list_tasks(&self, kanban: bool) -> Result<(), Error> {
+    pub fn list_tasks(&self, kanban: bool, json: bool) -> Result<(), Error> {
+        let tasks = self.get_tasks()?;
+        if json {
+            let output = serde_json::to_string_pretty(&tasks).map_err(Error::other)?;
+            println!("{output}");
+            return Ok(());
+        }
+
         println!(
             "Project: {}",
             self.title.as_ref().unwrap_or(&String::from("My Tasks"))
         );
-        let tasks = self.get_tasks()?;
-
         if tasks.is_empty() {
             println!("{}", "No tasks found. Add a task to get started!".yellow());
             return Ok(());
@@ -250,20 +257,18 @@ impl Mngr {
             for (status, _) in &columns {
                 if let Some(task_list) = grouped.get(status) {
                     if let Some(task) = task_list.get(i) {
-                        // Include date in the display (first line: ID + desc, second line: date)
                         let id_prefix = format!("[{}] ", task.id);
-                        let desc_max_len = column_width.saturating_sub(id_prefix.len() + 3);
+                        let title_max_len = column_width.saturating_sub(id_prefix.len() + 3);
 
-                        // Truncate on char boundaries: byte slicing panics on multi-byte chars
-                        let truncated = if task.description.chars().count() > desc_max_len {
+                        let truncated = if task.title.chars().count() > title_max_len {
                             let cut: String = task
-                                .description
+                                .title
                                 .chars()
-                                .take(desc_max_len.saturating_sub(3))
+                                .take(title_max_len.saturating_sub(3))
                                 .collect();
                             format!("{}...", cut)
                         } else {
-                            task.description.clone()
+                            task.title.clone()
                         };
 
                         let display = format!("{}{}", id_prefix, truncated);
@@ -326,15 +331,15 @@ impl Mngr {
                 continue;
             }
 
-            let parts: Vec<&str> = line.split("\t").collect();
-            if let Some(first_part) = parts.first()
-                && let Ok(task_id) = first_part.parse::<i32>()
-                && task_id == id
-            {
-                task_found = true;
-                continue; // Skip this line (delete it)
+            if let Some(task) = Task::from_file_line(&line) {
+                if task.id == id {
+                    task_found = true;
+                    continue;
+                }
+                filtered_lines.push(task.to_file_string());
+            } else {
+                filtered_lines.push(line);
             }
-            filtered_lines.push(line);
         }
 
         if !task_found {
@@ -363,12 +368,12 @@ impl Mngr {
         Ok(())
     }
 
-    // Tabs and newlines would break the tab-separated, line-based file format
+    fn sanitize_title(title: &str) -> String {
+        title.replace(['\t', '\n', '\r'], " ").trim().to_string()
+    }
+
     fn sanitize_description(description: &str) -> String {
-        description
-            .replace(['\t', '\n', '\r'], " ")
-            .trim()
-            .to_string()
+        description.replace(['\t', '\r'], " ").trim().to_string()
     }
 
     // Serializes read-modify-write cycles across processes. The lock lives on a

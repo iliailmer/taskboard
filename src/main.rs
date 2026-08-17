@@ -66,16 +66,21 @@ fn main() {
     let mngr = Mngr::new(tasklist_path.clone(), Some(project_title));
 
     let result = match args.command {
-        Some(Commands::Add { text, description }) => {
-            let description = text.or(description).expect("clap enforces one description");
-            mngr.add_task(description)
+        Some(Commands::Add {
+            text,
+            title,
+            description,
+        }) => {
+            let title = text.or(title).expect("clap enforces one title");
+            mngr.add_task(title, description.unwrap_or_default())
         },
         Some(Commands::Update {
             id,
             status,
+            title,
             description,
-        }) => mngr.update_task(id, status, description),
-        Some(Commands::Show { kanban }) => mngr.list_tasks(kanban),
+        }) => mngr.update_task(id, status, title, description),
+        Some(Commands::Show { kanban, json }) => mngr.list_tasks(kanban, json),
         Some(Commands::Delete { id }) => mngr.delete_task(id),
         Some(Commands::Tui) => tui::run(mngr),
         None => {
@@ -90,7 +95,7 @@ fn main() {
                 println!("  tsk --help");
                 return;
             }
-            mngr.list_tasks(args.kanban)
+            mngr.list_tasks(args.kanban, false)
         },
     };
 
