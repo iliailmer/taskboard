@@ -36,13 +36,15 @@ pub enum Commands {
     #[clap(visible_alias = "a")]
     Add {
         #[arg(
-            value_name = "DESCRIPTION",
-            help = "Task description",
-            required_unless_present = "description",
-            conflicts_with = "description"
+            value_name = "TITLE",
+            help = "Task title",
+            required_unless_present = "title",
+            conflicts_with = "title"
         )]
         text: Option<String>,
-        #[arg(short, long, help = "Task description (flag form)")]
+        #[arg(short, long, help = "Task title (flag form)")]
+        title: Option<String>,
+        #[arg(short, long, help = "Optional longer description")]
         description: Option<String>,
     },
     #[command(about = "Update an existing task")]
@@ -51,7 +53,9 @@ pub enum Commands {
         #[arg(short, long, help = "ID (index) of the task to update")]
         id: i32,
         #[arg(short, long, help = "New task status")]
-        status: Status,
+        status: Option<Status>,
+        #[arg(short, long, help = "New title")]
+        title: Option<String>,
         #[arg(short, long, help = "New description")]
         description: Option<String>,
     },
@@ -61,6 +65,8 @@ pub enum Commands {
     Show {
         #[arg(short, long, help = "Display tasks in Kanban board view")]
         kanban: bool,
+        #[arg(long, help = "Print tasks as JSON")]
+        json: bool,
     },
     #[command(about = "Delete task")]
     #[clap(visible_alias = "rm")]

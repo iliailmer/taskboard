@@ -12,7 +12,7 @@ A fast, reliable command-line task manager written in Rust with atomic file oper
 
 ## Features
 
-- Fast O(1) task addition with metadata caching
+- Fast O(1) task ID allocation with metadata caching
 - Atomic file operations prevent data corruption
 - File locking prevents race conditions
 - Kanban board view with terminal width auto-detection
@@ -43,14 +43,14 @@ cargo install --path .
 # View tasks (default)
 tsk
 
-# Add a task
-tsk add "Task description"
-tsk a "Task description"       # short alias
-tsk add -d "Task description"  # flag form also works
+# Add a titled task, optionally with a longer description
+tsk add "Task title"
+tsk a "Task title" --description "Longer body"
+tsk add --title "Task title" -d "Longer body"
 
-# Update task status
+# Update any combination of status, title, and description
 tsk update --id 1 --status in_progress
-tsk u --id 1 --status ip  # with aliases
+tsk u --id 1 --title "New title" --description "New body"
 
 # Delete task
 tsk delete --id 1
@@ -59,6 +59,9 @@ tsk rm --id 1  # short alias
 # Kanban view
 tsk --kanban
 tsk show --kanban
+
+# Machine-readable view
+tsk show --json
 ```
 
 ### Status Aliases
@@ -81,8 +84,10 @@ tsk tui
 
 - `↑/k` and `↓/j` - Navigate tasks
 - `1/2/3` - Change status (Not Started/In Progress/Done)
-- `n` - Add new task
-- `e` - Edit selected task's description
+- `n` - Add a title, then an optional multiline description
+- `e` - Edit the selected task's title, then its description
+- `Enter` - Continue from title or insert a description newline
+- `Ctrl+S` - Save while editing a description
 - `d` - Delete task
 - `r` - Reload tasks
 - `q` or Ctrl+C - Quit
@@ -95,13 +100,14 @@ tsk tui
 
 ## File Format
 
-Tasks are stored in `.tasklist` using tab-separated format:
+Tasks are stored in `.tasklist` as five tab-separated fields: ID, status,
+title, escaped description, and date. Embedded description newlines are stored
+as `\n`; existing four-field files migrate on their next mutation.
 
 ```
 #max_id=3
-1 🚀 Not Started Write documentation 2025-12-26 10:00
-2 ⏳ In Progress Implement feature 2025-12-26 11:30
-3 ✅ Done Fix bug 2025-12-26 09:15
+1\t🚀 Not Started\tWrite documentation\tSee the install section\t2025-12-26 10:00
+2\t⏳ In Progress\tImplement feature\tMultiline\nbody survives\t2025-12-26 11:30
 ```
 
 ## Development

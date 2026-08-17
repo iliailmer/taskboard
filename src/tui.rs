@@ -23,14 +23,18 @@ pub struct App {
     selected_row: usize,    // Index within the selected column
     mode: AppMode,
     input: String,
+    draft_title: String,
+    draft_description: String,
     error_message: Option<String>,
 }
 
 #[derive(PartialEq)]
 enum AppMode {
     Normal,
-    AddingTask,
-    EditingTask { id: i32, status: Status },
+    AddingTitle,
+    AddingDescription,
+    EditingTitle { id: i32, status: Status },
+    EditingDescription { id: i32, status: Status },
     ConfirmDelete,
 }
 
@@ -44,6 +48,8 @@ impl App {
             selected_row: 0,
             mode: AppMode::Normal,
             input: String::new(),
+            draft_title: String::new(),
+            draft_description: String::new(),
             error_message: None,
         })
     }
@@ -178,7 +184,7 @@ impl App {
         if let Some(task) = self.get_selected_task() {
             let task_id = task.id;
             self.manager
-                .update_task(task_id, status, None)
+                .update_task(task_id, Some(status), None, None)
                 .map_err(io::Error::other)?;
             self.reload_tasks()?;
         }
@@ -197,36 +203,40 @@ impl App {
     }
 
     fn add_task(&mut self) -> io::Result<()> {
-        if !self.input.is_empty() {
-            self.manager
-                .add_task(self.input.clone())
-                .map_err(io::Error::other)?;
-            self.input.clear();
-            self.mode = AppMode::Normal;
-            self.reload_tasks()?;
-            // Select the newly added task (goes to NotStarted column)
-            self.selected_column = 0;
-            self.ensure_valid_selection();
-            // Move to the last task in NotStarted column
-            let grouped = self.get_grouped_tasks();
-            if let Some(tasks) = grouped.get(&Status::NotStarted)
-                && !tasks.is_empty()
-            {
-                self.selected_row = tasks.len() - 1;
-            }
+        self.manager
+            .add_task(self.draft_title.clone(), self.input.clone())
+            .map_err(io::Error::other)?;
+        self.reset_editor();
+        self.reload_tasks()?;
+        self.selected_column = 0;
+        self.ensure_valid_selection();
+        let grouped = self.get_grouped_tasks();
+        if let Some(tasks) = grouped.get(&Status::NotStarted)
+            && !tasks.is_empty()
+        {
+            self.selected_row = tasks.len() - 1;
         }
         Ok(())
     }
 
     fn save_edited_task(&mut self, id: i32, status: Status) -> io::Result<()> {
-        if !self.input.trim().is_empty() {
-            self.manager
-                .update_task(id, status, Some(self.input.clone()))
-                .map_err(io::Error::other)?;
-        }
-        self.input.clear();
-        self.mode = AppMode::Normal;
+        self.manager
+            .update_task(
+                id,
+                Some(status),
+                Some(self.draft_title.clone()),
+                Some(self.input.clone()),
+            )
+            .map_err(io::Error::other)?;
+        self.reset_editor();
         self.reload_tasks()
+    }
+
+    fn reset_editor(&mut self) {
+        self.input.clear();
+        self.draft_title.clear();
+        self.draft_description.clear();
+        self.mode = AppMode::Normal;
     }
 }
 
@@ -272,16 +282,26 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     KeyCode::Right | KeyCode::Char('l') => app.next_column(),
                     KeyCode::Left | KeyCode::Char('h') => app.previous_column(),
                     KeyCode::Char('n') => {
-                        app.mode = AppMode::AddingTask;
+                        app.mode = AppMode::AddingTitle;
                         app.input.clear();
+                        app.draft_title.clear();
+                        app.draft_description.clear();
                         app.error_message = None;
                     },
                     KeyCode::Char('e') => {
-                        if let Some(task) = app.get_selected_task() {
-                            let id = task.id;
-                            let status = task.status;
-                            app.input = task.description.clone();
-                            app.mode = AppMode::EditingTask { id, status };
+                        if let Some((id, status, title, description)) =
+                            app.get_selected_task().map(|task| {
+                                (
+                                    task.id,
+                                    task.status,
+                                    task.title.clone(),
+                                    task.description.clone(),
+                                )
+                            })
+                        {
+                            app.input = title;
+                            app.draft_description = description;
+                            app.mode = AppMode::EditingTitle { id, status };
                             app.error_message = None;
                         }
                     },
@@ -315,16 +335,15 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     },
                     _ => {},
                 },
-                AppMode::AddingTask => match key.code {
+                AppMode::AddingTitle => match key.code {
                     KeyCode::Enter => {
-                        if let Err(e) = app.add_task() {
-                            app.error_message = Some(format!("Error: {}", e));
-                            app.mode = AppMode::Normal;
+                        if !app.input.trim().is_empty() {
+                            app.draft_title = std::mem::take(&mut app.input);
+                            app.mode = AppMode::AddingDescription;
                         }
                     },
                     KeyCode::Esc => {
-                        app.mode = AppMode::Normal;
-                        app.input.clear();
+                        app.reset_editor();
                         app.error_message = None;
                     },
                     KeyCode::Char(c) => {
@@ -335,21 +354,55 @@ fn run_app<B: Backend>(terminal: &mut Terminal<B>, mut app: App) -> io::Result<(
                     },
                     _ => {},
                 },
-                AppMode::EditingTask { id, status } => match key.code {
-                    KeyCode::Enter => {
-                        if let Err(e) = app.save_edited_task(id, status) {
+                AppMode::AddingDescription => match key.code {
+                    KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if let Err(e) = app.add_task() {
                             app.error_message = Some(format!("Error: {}", e));
-                            app.mode = AppMode::Normal;
+                        }
+                    },
+                    KeyCode::Enter => app.input.push('\n'),
+                    KeyCode::Esc => {
+                        app.reset_editor();
+                        app.error_message = None;
+                    },
+                    KeyCode::Char(c) => app.input.push(c),
+                    KeyCode::Backspace => {
+                        app.input.pop();
+                    },
+                    _ => {},
+                },
+                AppMode::EditingTitle { id, status } => match key.code {
+                    KeyCode::Enter => {
+                        if !app.input.trim().is_empty() {
+                            app.draft_title = std::mem::take(&mut app.input);
+                            app.input = std::mem::take(&mut app.draft_description);
+                            app.mode = AppMode::EditingDescription { id, status };
                         }
                     },
                     KeyCode::Esc => {
-                        app.mode = AppMode::Normal;
-                        app.input.clear();
+                        app.reset_editor();
                         app.error_message = None;
                     },
                     KeyCode::Char(c) => {
                         app.input.push(c);
                     },
+                    KeyCode::Backspace => {
+                        app.input.pop();
+                    },
+                    _ => {},
+                },
+                AppMode::EditingDescription { id, status } => match key.code {
+                    KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                        if let Err(e) = app.save_edited_task(id, status) {
+                            app.error_message = Some(format!("Error: {}", e));
+                        }
+                    },
+                    KeyCode::Enter => app.input.push('\n'),
+                    KeyCode::Esc => {
+                        app.reset_editor();
+                        app.error_message = None;
+                    },
+                    KeyCode::Char(c) => app.input.push(c),
                     KeyCode::Backspace => {
                         app.input.pop();
                     },
@@ -407,11 +460,20 @@ fn ui(f: &mut Frame, app: &mut App) {
 
     // Input or Help
     match app.mode {
-        AppMode::AddingTask | AppMode::EditingTask { .. } => {
-            let title = if matches!(app.mode, AppMode::AddingTask) {
-                "New Task Description"
-            } else {
-                "Edit Task Description"
+        AppMode::AddingTitle
+        | AppMode::AddingDescription
+        | AppMode::EditingTitle { .. }
+        | AppMode::EditingDescription { .. } => {
+            let title = match app.mode {
+                AppMode::AddingTitle => "New Task Title — Enter: next, Esc: cancel",
+                AppMode::AddingDescription => {
+                    "New Task Description — Enter: newline, Ctrl-S: save, Esc: cancel"
+                },
+                AppMode::EditingTitle { .. } => "Edit Task Title — Enter: next, Esc: cancel",
+                AppMode::EditingDescription { .. } => {
+                    "Edit Task Description — Enter: newline, Ctrl-S: save, Esc: cancel"
+                },
+                _ => unreachable!(),
             };
             let input = Paragraph::new(app.input.as_str())
                 .style(Style::default().fg(Color::Yellow))
@@ -498,24 +560,28 @@ fn render_kanban_board(f: &mut Frame, app: &App, area: Rect) {
                     String::new()
                 };
 
-                let content = vec![
-                    Line::from(vec![
-                        Span::styled(id_text.clone(), Style::default().fg(Color::DarkGray)),
-                        Span::raw(" "),
-                        Span::styled(
-                            task.description.clone(),
-                            if is_selected {
-                                Style::default().add_modifier(Modifier::BOLD)
-                            } else {
-                                Style::default()
-                            },
-                        ),
-                    ]),
-                    Line::from(vec![Span::styled(
-                        date_text.clone(),
-                        Style::default().fg(Color::DarkGray),
-                    )]),
-                ];
+                let mut content = vec![Line::from(vec![
+                    Span::styled(id_text.clone(), Style::default().fg(Color::DarkGray)),
+                    Span::raw(" "),
+                    Span::styled(
+                        task.title.clone(),
+                        if is_selected {
+                            Style::default().add_modifier(Modifier::BOLD)
+                        } else {
+                            Style::default()
+                        },
+                    ),
+                ])];
+                content.extend(task.description.lines().map(|line| {
+                    Line::from(Span::styled(
+                        line.to_string(),
+                        Style::default().fg(Color::Gray),
+                    ))
+                }));
+                content.push(Line::from(vec![Span::styled(
+                    date_text.clone(),
+                    Style::default().fg(Color::DarkGray),
+                )]));
 
                 let item = ListItem::new(content);
                 if is_selected {
