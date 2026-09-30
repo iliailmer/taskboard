@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser, Debug)]
 #[command(
     version,
-    name = "tasklist",
+    name = "taskboard (tsk)",
     about = "A to-do list app for command line"
 )]
 pub struct Cli {
