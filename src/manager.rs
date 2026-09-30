@@ -1,7 +1,10 @@
 use crate::task::{Status, Task};
 use colored::Colorize;
+use std::collections::hash_map::DefaultHasher;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, BufWriter, Error, Write};
+use std::hash::{Hash, Hasher};
+use std::io::{BufRead, BufReader, BufWriter, Error, ErrorKind, Write};
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use tabled::settings::object::Segment;
 use tabled::settings::{Modify, Width};
@@ -381,21 +384,25 @@ impl Mngr {
     // is unsound with rename-replace: a waiter can end up holding a lock on the
     // old, already-replaced inode. Released when the returned handle is dropped.
     fn acquire_write_lock(&self) -> Result<File, Error> {
-        let lock_path = format!("{}.lock", self.tasklist_path);
+        let mut hasher = DefaultHasher::new();
+        let tsk_path = Path::new(&self.tasklist_path);
+        tsk_path.hash(&mut hasher);
+        let hash = hasher.finish();
+        let tmp_lock = std::env::temp_dir().join(format!("tsk-{:x}.lock", hash));
         let lock_file = OpenOptions::new()
             .create(true)
             .write(true)
             .truncate(false)
-            .open(&lock_path)
+            .open(&tmp_lock)
             .map_err(|e| {
                 Error::new(
                     e.kind(),
-                    format!("Failed to open lock file {}: {}", lock_path, e),
+                    format!("Failed to open lock file {}: {}", tmp_lock.display(), e),
                 )
             })?;
         lock_file
             .lock()
-            .map_err(|e| Error::other(format!("Failed to lock {}: {}", lock_path, e)))?;
+            .map_err(|e| Error::other(format!("Failed to lock {}: {}", tmp_lock.display(), e)))?;
         Ok(lock_file)
     }
 
@@ -468,7 +475,14 @@ impl Mngr {
             write_fn(&mut writer)?;
             writer.flush()?;
         } // Writer dropped here, releasing the file reference
-
+        let metadata = std::fs::metadata(path);
+        #[cfg(unix)]
+        let permissions = match metadata {
+            Ok(m) => m.permissions(),
+            Err(e) if e.kind() == ErrorKind::NotFound => PermissionsExt::from_mode(0o644),
+            Err(e) => return Err(e),
+        };
+        std::fs::set_permissions(&temp_file, permissions)?;
         // Atomically replace the original file
         temp_file
             .persist(&self.tasklist_path)
