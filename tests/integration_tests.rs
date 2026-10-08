@@ -86,6 +86,20 @@ fn test_task_lifecycle() {
 }
 
 #[test]
+fn test_deleted_id_is_not_reused() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path().to_path_buf();
+
+    ok(&dir, &["add", "First"]);
+    ok(&dir, &["add", "Second"]);
+    ok(&dir, &["delete", "--id", "2"]);
+    ok(&dir, &["add", "Third"]);
+
+    let tasks = read_json(&dir);
+    assert_eq!(tasks[1]["id"], 3);
+}
+
+#[test]
 fn test_separators_in_title_do_not_corrupt_row() {
     let temp_dir = TempDir::new().unwrap();
     let dir = temp_dir.path().to_path_buf();
@@ -159,4 +173,105 @@ fn test_lockfile() {
 
     assert!(list_exists);
     assert!(!lock_exists);
+}
+
+// Runs a command on a tasklist with the given content. The command must fail,
+// name the file on stderr, print nothing on stdout, and leave the file as it was.
+fn assert_rejected(content: &str, args: &[&str]) {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path().to_path_buf();
+    let path = dir.join(".tasklist");
+    fs::write(&path, content).unwrap();
+
+    let mut full = vec!["--file", ".tasklist"];
+    full.extend_from_slice(args);
+    let output = run_command(&dir, &full);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    assert!(
+        !output.status.success(),
+        "{:?} should fail\nstdout: {}",
+        args,
+        stdout
+    );
+    assert!(stderr.contains(".tasklist"), "stderr: {}", stderr);
+    assert!(stdout.is_empty(), "stdout: {}", stdout);
+    assert_eq!(fs::read_to_string(&path).unwrap(), content);
+}
+
+const GOOD_ROW: &str = "1\t🚀 Not Started\tTask\t\t2025-01-01 10:00\n";
+
+#[test]
+fn test_bad_max_id_header_is_rejected() {
+    let content = format!("#max_id=abc\n{GOOD_ROW}");
+    assert_rejected(&content, &["show", "--json"]);
+    assert_rejected(&content, &["add", "New"]);
+}
+
+#[test]
+fn test_truncated_row_is_rejected() {
+    let content = format!("#max_id=2\n{GOOD_ROW}2\t🚀 Not Started\n");
+    assert_rejected(&content, &["show", "--json"]);
+    assert_rejected(&content, &["add", "New"]);
+    assert_rejected(&content, &["delete", "--id", "1"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_unreadable_file_is_not_replaced() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path().to_path_buf();
+    let path = dir.join(".tasklist");
+    let content = format!("#max_id=1\n{GOOD_ROW}");
+    fs::write(&path, &content).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o000)).unwrap();
+
+    let output = run_command(&dir, &["--file", ".tasklist", "add", "New"]);
+
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "add should fail");
+    assert!(stderr.contains(".tasklist"), "stderr: {}", stderr);
+    assert_eq!(fs::read_to_string(&path).unwrap(), content);
+}
+
+#[cfg(unix)]
+#[test]
+fn test_failed_write_keeps_old_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path().to_path_buf();
+    let path = dir.join(".tasklist");
+    let content = format!("#max_id=1\n{GOOD_ROW}");
+    fs::write(&path, &content).unwrap();
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o555)).unwrap();
+
+    let output = run_command(&dir, &["--file", ".tasklist", "add", "New"]);
+
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(!output.status.success(), "add should fail");
+    assert_eq!(fs::read_to_string(&path).unwrap(), content);
+    let leftovers: Vec<_> = fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .filter(|n| n != ".tasklist")
+        .collect();
+    assert!(leftovers.is_empty(), "leftover files: {:?}", leftovers);
+}
+
+#[test]
+fn test_unknown_comment_line_is_ignored() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path().to_path_buf();
+    fs::write(
+        dir.join(".tasklist"),
+        format!("# my notes\n#max_id=1\n{GOOD_ROW}"),
+    )
+    .unwrap();
+
+    assert_eq!(read_json(&dir)[0]["id"], 1);
 }
