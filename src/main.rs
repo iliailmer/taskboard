@@ -5,9 +5,11 @@ mod tui;
 
 use crate::cli::{Cli, Commands};
 use crate::manager::Mngr;
+use crate::task::Task;
 use clap::Parser;
 
 use std::fs;
+use std::io::Error;
 use std::path::PathBuf;
 
 fn get_tasklist_path(custom: Option<String>) -> Result<(String, String), String> {
@@ -70,18 +72,25 @@ fn main() {
             text,
             title,
             description,
+            json,
         }) => {
             let title = text.or(title).expect("clap enforces one title");
             mngr.add_task(title, description.unwrap_or_default())
+                .and_then(|task| report("Added", &task, json))
         },
         Some(Commands::Update {
             id,
             status,
             title,
             description,
-        }) => mngr.update_task(id, status, title, description),
+            json,
+        }) => mngr
+            .update_task(id, status, title, description)
+            .and_then(|task| report("Updated", &task, json)),
         Some(Commands::Show { kanban, json }) => mngr.list_tasks(kanban, json),
-        Some(Commands::Delete { id }) => mngr.delete_task(id),
+        Some(Commands::Delete { id, json }) => mngr
+            .delete_task(id)
+            .and_then(|task| report("Deleted", &task, json)),
         Some(Commands::Tui) => tui::run(mngr),
         None => {
             // Default: show tasks, but check if file exists first
@@ -103,4 +112,16 @@ fn main() {
         eprintln!("Error: {}", e);
         std::process::exit(1);
     }
+}
+
+fn report(action: &str, task: &Task, json: bool) -> Result<(), Error> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(task).map_err(Error::other)?
+        );
+    } else {
+        println!("{} #{}: {}", action, task.id, task.title);
+    }
+    Ok(())
 }

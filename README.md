@@ -62,6 +62,10 @@ tsk show --kanban
 
 # Machine-readable view
 tsk show --json
+
+# add, update, and delete print the affected task ("Added #3: Task title");
+# with --json they print it as one JSON object
+tsk add "Task title" --json
 ```
 
 ### Status Aliases

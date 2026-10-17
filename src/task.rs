@@ -48,7 +48,7 @@ impl fmt::Display for Status {
     }
 }
 
-#[derive(Debug, Serialize, Tabled)]
+#[derive(Debug, Clone, Serialize, Tabled)]
 pub struct Task {
     pub id: i32,
     #[tabled(inline)]
