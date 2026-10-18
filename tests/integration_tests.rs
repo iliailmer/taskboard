@@ -337,6 +337,8 @@ fn test_show_filters() {
     assert_eq!(ids(&[]), [1, 2, 3]);
     assert_eq!(ids(&["--id", "2"]), [2]);
     assert_eq!(ids(&["--status", "ip"]), [2, 3]);
+    assert_eq!(ids(&["--status", "not_started"]), [1]);
+    assert_eq!(ids(&["--status", "todo"]), [1]);
     assert_eq!(ids(&["--search", "readme"]), [1]);
     assert_eq!(ids(&["--status", "ip", "--search", "docs"]), [3]);
     assert_eq!(ids(&["--id", "9"]), Vec::<i64>::new());

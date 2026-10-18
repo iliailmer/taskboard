@@ -6,8 +6,7 @@ use tabled::Tabled;
 #[derive(Debug, Clone, Copy, ValueEnum, Eq, Hash, PartialEq, Serialize, Tabled)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
-    #[value(name = "not_started", alias = "ns")]
-    #[value(name = "todo", alias = "td")]
+    #[value(name = "not_started", alias = "ns", alias = "todo", alias = "td")]
     #[tabled(rename = "🚀 Not Started")]
     NotStarted,
     #[tabled(rename = "⏳ In Progress")]
