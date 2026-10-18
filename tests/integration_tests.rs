@@ -392,3 +392,29 @@ fn test_init_creates_empty_tasklist_once() {
     assert!(!output.status.success());
     assert!(String::from_utf8_lossy(&output.stderr).contains("does not exist"));
 }
+
+#[test]
+fn test_tasklist_is_found_in_parent_directories() {
+    let temp_dir = TempDir::new().unwrap();
+    let root = temp_dir.path().to_path_buf();
+    let deep = root.join("src").join("deep");
+    fs::create_dir_all(&deep).unwrap();
+    let json = |dir: &PathBuf| -> Value {
+        let output = run_command(dir, &["show", "--json"]);
+        assert!(output.status.success());
+        serde_json::from_slice(&output.stdout).unwrap()
+    };
+
+    fs::create_dir(root.join(".git")).unwrap();
+    assert!(run_command(&deep, &["add", "From deep"]).status.success());
+    assert!(root.join(".tasklist").exists());
+    assert!(!deep.join(".tasklist").exists());
+
+    fs::write(deep.join(".tasklist"), "#max_id=0\n").unwrap();
+    assert_eq!(json(&deep), serde_json::json!([]));
+    assert_eq!(json(&root.join("src"))[0]["title"], "From deep");
+
+    let output = run_command(&deep, &["--file", "../../.tasklist", "show", "--json"]);
+    let tasks: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(tasks[0]["title"], "From deep");
+}

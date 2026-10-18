@@ -40,7 +40,7 @@ cargo install --path .
 ### CLI Mode
 
 ```bash
-# Create an empty tasklist in the current directory (refuses to overwrite)
+# Create an empty tasklist (refuses to overwrite)
 tsk init
 
 # View tasks (default)
@@ -113,6 +113,11 @@ tsk tui
 - `-k, --kanban` - Display Kanban view
 
 ## File Format
+
+Without `--file`, `tsk` uses the nearest `.tasklist` in the current directory
+or a parent directory, as git finds `.git`. The search stops at the git
+repository root; if no tasklist is found, a new one goes there (or in the
+current directory outside a repository).
 
 Tasks are stored in `.tasklist` as five tab-separated fields: ID, status,
 title, escaped description, and date. Embedded description newlines are stored
