@@ -103,12 +103,16 @@ fn main() {
             mngr.delete_task(id)
                 .and_then(|task| report("Deleted", &task, json))
         },
+        Some(Commands::Init) => mngr
+            .init_tasklist()
+            .map(|()| println!("Created tasklist {}", tasklist_path)),
         Some(Commands::Tui) => tui::run(mngr),
         None => {
             // Default: show tasks, but check if file exists first
             if !PathBuf::from(&tasklist_path).exists() {
                 println!("No tasklist file found at: {}", tasklist_path);
-                println!("\nGet started by adding your first task:");
+                println!("\nGet started by creating it, or by adding your first task:");
+                println!("  tsk init");
                 println!("  tsk add \"My first task\"");
                 println!("\nOr run in interactive mode:");
                 println!("  tsk tui");

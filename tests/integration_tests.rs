@@ -365,3 +365,30 @@ fn test_task_id_as_positional_argument() {
     fails(&dir, &["rm", "2", "--id", "2"], "cannot be used with");
     fails(&dir, &["update", "--status", "done"], "required");
 }
+
+#[test]
+fn test_init_creates_empty_tasklist_once() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path().to_path_buf();
+
+    let output = run_command(&dir, &["init"]);
+    assert!(output.status.success());
+    assert_eq!(
+        fs::read_to_string(dir.join(".tasklist")).unwrap(),
+        "#max_id=0\n"
+    );
+    assert_eq!(read_json(&dir), serde_json::json!([]));
+
+    ok(&dir, &["add", "Keep me"]);
+    let before = fs::read_to_string(dir.join(".tasklist")).unwrap();
+    fails(&dir, &["init"], "already exists");
+    assert_eq!(fs::read_to_string(dir.join(".tasklist")).unwrap(), before);
+
+    let output = run_command(&dir, &["--file", "other.tasklist", "init"]);
+    assert!(output.status.success());
+    assert!(dir.join("other.tasklist").exists());
+
+    let output = run_command(&dir, &["--file", "missing/dir/.tasklist", "init"]);
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("does not exist"));
+}

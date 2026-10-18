@@ -24,6 +24,22 @@ impl Mngr {
         }
     }
 
+    pub fn init_tasklist(&self) -> Result<(), Error> {
+        let mut file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&self.tasklist_path)
+            .map_err(|e| {
+                let message = if e.kind() == ErrorKind::AlreadyExists {
+                    format!("Tasklist already exists: {}", self.tasklist_path)
+                } else {
+                    format!("Could not create tasklist {}: {}", self.tasklist_path, e)
+                };
+                Error::new(e.kind(), message)
+            })?;
+        self.write_metadata(&mut file, 0)
+    }
+
     fn write_file(&self, tasks: &[Task], max_id: i32) -> Result<(), Error> {
         self.atomic_write(|writer| {
             self.write_metadata(writer, max_id)?;
