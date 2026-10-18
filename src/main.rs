@@ -79,24 +79,30 @@ fn main() {
                 .and_then(|task| report("Added", &task, json))
         },
         Some(Commands::Update {
+            task_id,
             id,
             status,
             title,
             description,
             json,
-        }) => mngr
-            .update_task(id, status, title, description)
-            .and_then(|task| report("Updated", &task, json)),
+        }) => {
+            let id = task_id.or(id).expect("clap enforces one id");
+            mngr.update_task(id, status, title, description)
+                .and_then(|task| report("Updated", &task, json))
+        },
         Some(Commands::Show {
+            task_id,
             id,
             kanban,
             json,
             status,
             search,
-        }) => mngr.list_tasks(id, kanban, json, status, search),
-        Some(Commands::Delete { id, json }) => mngr
-            .delete_task(id)
-            .and_then(|task| report("Deleted", &task, json)),
+        }) => mngr.list_tasks(task_id.or(id), kanban, json, status, search),
+        Some(Commands::Delete { task_id, id, json }) => {
+            let id = task_id.or(id).expect("clap enforces one id");
+            mngr.delete_task(id)
+                .and_then(|task| report("Deleted", &task, json))
+        },
         Some(Commands::Tui) => tui::run(mngr),
         None => {
             // Default: show tasks, but check if file exists first

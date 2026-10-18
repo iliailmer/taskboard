@@ -343,3 +343,25 @@ fn test_show_filters() {
     assert_eq!(ids(&["--status", "ip", "--search", "docs"]), [3]);
     assert_eq!(ids(&["--id", "9"]), Vec::<i64>::new());
 }
+
+#[test]
+fn test_task_id_as_positional_argument() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path().to_path_buf();
+    ok(&dir, &["add", "First"]);
+    ok(&dir, &["add", "Second"]);
+
+    ok(&dir, &["update", "2", "--status", "done"]);
+    assert_eq!(read_json(&dir)[1]["status"], "done");
+
+    let output = run_command(&dir, &["--file", ".tasklist", "show", "2", "--json"]);
+    let shown: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(shown.as_array().unwrap().len(), 1);
+    assert_eq!(shown[0]["id"], 2);
+
+    ok(&dir, &["rm", "1"]);
+    assert_eq!(read_json(&dir).as_array().unwrap().len(), 1);
+
+    fails(&dir, &["rm", "2", "--id", "2"], "cannot be used with");
+    fails(&dir, &["update", "--status", "done"], "required");
+}
