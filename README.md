@@ -40,6 +40,9 @@ cargo install --path .
 ### CLI Mode
 
 ```bash
+# Create an empty tasklist in the current directory (refuses to overwrite)
+tsk init
+
 # View tasks (default)
 tsk
 

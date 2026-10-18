@@ -102,6 +102,8 @@ pub enum Commands {
         #[arg(long, help = "Print the deleted task as JSON")]
         json: bool,
     },
+    #[command(about = "Create an empty tasklist")]
+    Init,
     #[command(about = "Launch interactive TUI")]
     Tui,
 }
