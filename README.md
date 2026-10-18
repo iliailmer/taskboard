@@ -49,12 +49,14 @@ tsk a "Task title" --description "Longer body"
 tsk add --title "Task title" -d "Longer body"
 
 # Update any combination of status, title, and description
-tsk update --id 1 --status in_progress
-tsk u --id 1 --title "New title" --description "New body"
+tsk update 1 --status in_progress
+tsk u 1 --title "New title" --description "New body"
 
 # Delete task
-tsk delete --id 1
-tsk rm --id 1  # short alias
+tsk delete 1
+tsk rm 1  # short alias
+
+# The ID can also be given as --id 1, for scripts
 
 # Kanban view
 tsk --kanban
@@ -65,7 +67,7 @@ tsk show --json
 
 # Filter by ID, status, or text in the title or description (case-insensitive);
 # filters combine, and work with --kanban and --json
-tsk show --id 3
+tsk show 3
 tsk show --status ip --search docs
 
 # add, update, and delete print the affected task ("Added #3: Task title");

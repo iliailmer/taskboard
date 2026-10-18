@@ -52,8 +52,15 @@ pub enum Commands {
     #[command(about = "Update an existing task")]
     #[clap(visible_alias = "u")]
     Update {
-        #[arg(short, long, help = "ID (index) of the task to update")]
-        id: i32,
+        #[arg(
+            value_name = "ID",
+            help = "ID of the task to update",
+            required_unless_present = "id",
+            conflicts_with = "id"
+        )]
+        task_id: Option<i32>,
+        #[arg(short, long, help = "ID of the task to update (flag form)")]
+        id: Option<i32>,
         #[arg(short, long, help = "New task status")]
         status: Option<Status>,
         #[arg(short, long, help = "New title")]
@@ -67,7 +74,9 @@ pub enum Commands {
     #[clap(visible_alias = "ls")]
     #[clap(visible_alias = "list")]
     Show {
-        #[arg(short, long, help = "Filter by `id`")]
+        #[arg(value_name = "ID", help = "Show only this task", conflicts_with = "id")]
+        task_id: Option<i32>,
+        #[arg(short, long, help = "Show only this task (flag form)")]
         id: Option<i32>,
         #[arg(short, long, help = "Filter by status")]
         status: Option<Status>,
@@ -81,8 +90,15 @@ pub enum Commands {
     #[command(about = "Delete task")]
     #[clap(visible_alias = "rm")]
     Delete {
-        #[arg(short, long, help = "ID of task being deleted")]
-        id: i32,
+        #[arg(
+            value_name = "ID",
+            help = "ID of the task to delete",
+            required_unless_present = "id",
+            conflicts_with = "id"
+        )]
+        task_id: Option<i32>,
+        #[arg(short, long, help = "ID of the task to delete (flag form)")]
+        id: Option<i32>,
         #[arg(long, help = "Print the deleted task as JSON")]
         json: bool,
     },
