@@ -63,6 +63,11 @@ tsk show --kanban
 # Machine-readable view
 tsk show --json
 
+# Filter by ID, status, or text in the title or description (case-insensitive);
+# filters combine, and work with --kanban and --json
+tsk show --id 3
+tsk show --status ip --search docs
+
 # add, update, and delete print the affected task ("Added #3: Task title");
 # with --json they print it as one JSON object
 tsk add "Task title" --json
