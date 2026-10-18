@@ -275,3 +275,32 @@ fn test_unknown_comment_line_is_ignored() {
 
     assert_eq!(read_json(&dir)[0]["id"], 1);
 }
+
+#[test]
+fn test_mutations_report_the_affected_task() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path().to_path_buf();
+    let stdout = |args: &[&str]| {
+        let mut full = vec!["--file", ".tasklist"];
+        full.extend_from_slice(args);
+        let output = run_command(&dir, &full);
+        assert!(output.status.success(), "{:?}", args);
+        String::from_utf8(output.stdout).unwrap()
+    };
+
+    assert_eq!(stdout(&["add", "First"]), "Added #1: First\n");
+
+    let added: Value = serde_json::from_str(&stdout(&["add", "Second", "--json"])).unwrap();
+    assert_eq!(added, read_json(&dir)[1]);
+
+    let updated: Value = serde_json::from_str(&stdout(&[
+        "update", "--id", "2", "--status", "done", "--json",
+    ]))
+    .unwrap();
+    assert_eq!(updated["status"], "done");
+    assert_eq!(updated, read_json(&dir)[1]);
+
+    let deleted: Value = serde_json::from_str(&stdout(&["delete", "--id", "2", "--json"])).unwrap();
+    assert_eq!(deleted["id"], 2);
+    assert_eq!(read_json(&dir).as_array().unwrap().len(), 1);
+}

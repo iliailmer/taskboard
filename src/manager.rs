@@ -98,7 +98,7 @@ impl Mngr {
         Ok((existing_tasks, max_id))
     }
 
-    pub fn add_task(&self, title: String, description: String) -> Result<(), Error> {
+    pub fn add_task(&self, title: String, description: String) -> Result<Task, Error> {
         let _lock = self.acquire_write_lock()?;
 
         let title = Self::sanitize_title(&title);
@@ -114,11 +114,11 @@ impl Mngr {
         max_id += 1;
         let today = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
         let task = Task::new(max_id, Status::NotStarted, title, description, today);
-        existing_tasks.push(task);
+        existing_tasks.push(task.clone());
 
         self.write_file(&existing_tasks, max_id)?;
 
-        Ok(())
+        Ok(task)
     }
 
     pub fn update_task(
@@ -127,7 +127,7 @@ impl Mngr {
         status: Option<Status>,
         title: Option<String>,
         description: Option<String>,
-    ) -> Result<(), Error> {
+    ) -> Result<Task, Error> {
         let _lock = self.acquire_write_lock()?;
 
         if status.is_none() && title.is_none() && description.is_none() {
@@ -146,34 +146,25 @@ impl Mngr {
         let description = description.map(|d| Self::sanitize_description(&d));
         let (mut existing_tasks, max_id) = self.read_or_create_file()?;
 
-        let mut task_found = false;
-        let mut idx = 0;
-        for task in &existing_tasks {
-            if task.id == id {
-                task_found = true;
-                break;
-            } else {
-                idx += 1;
-            }
-            // updated_tasks.push(task);
+        let task = existing_tasks
+            .iter_mut()
+            .find(|t| t.id == id)
+            .ok_or_else(|| Self::not_found(id))?;
+        if let Some(status) = status {
+            task.status = status;
         }
-        if let Some(task) = existing_tasks.get_mut(idx) {
-            task.status = status.unwrap_or(task.status);
-            task.title = title.clone().unwrap_or(task.title.clone());
-            task.description = description.clone().unwrap_or(task.description.clone());
-            task.date = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+        if let Some(title) = title {
+            task.title = title;
         }
-
-        if !task_found {
-            return Err(Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("Task with ID {} not found", id),
-            ));
+        if let Some(description) = description {
+            task.description = description;
         }
+        task.date = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+        let updated = task.clone();
 
         self.write_file(&existing_tasks, max_id)?;
 
-        Ok(())
+        Ok(updated)
     }
 
     pub fn get_tasks(&self) -> Result<Vec<Task>, Error> {
@@ -299,22 +290,25 @@ impl Mngr {
         println!();
     }
 
-    pub fn delete_task(&self, id: i32) -> Result<(), Error> {
+    pub fn delete_task(&self, id: i32) -> Result<Task, Error> {
         let _lock = self.acquire_write_lock()?;
         let (mut tasks, max_id) = self.read_or_create_file()?;
-        let len_before = tasks.len();
-        tasks.retain(|t| t.id != id);
-        let deleted = tasks.len() != len_before;
-        if !deleted {
-            return Err(Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("Task with ID {} not found", id),
-            ));
-        }
+        let index = tasks
+            .iter()
+            .position(|t| t.id == id)
+            .ok_or_else(|| Self::not_found(id))?;
+        let deleted = tasks.remove(index);
 
         self.write_file(&tasks, max_id)?;
 
-        Ok(())
+        Ok(deleted)
+    }
+
+    fn not_found(id: i32) -> Error {
+        Error::new(
+            std::io::ErrorKind::NotFound,
+            format!("Task with ID {} not found", id),
+        )
     }
 
     fn sanitize_title(title: &str) -> String {

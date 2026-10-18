@@ -46,6 +46,8 @@ pub enum Commands {
         title: Option<String>,
         #[arg(short, long, help = "Optional longer description")]
         description: Option<String>,
+        #[arg(long, help = "Print the new task as JSON")]
+        json: bool,
     },
     #[command(about = "Update an existing task")]
     #[clap(visible_alias = "u")]
@@ -58,6 +60,8 @@ pub enum Commands {
         title: Option<String>,
         #[arg(short, long, help = "New description")]
         description: Option<String>,
+        #[arg(long, help = "Print the updated task as JSON")]
+        json: bool,
     },
     #[command(about = "View tasks")]
     #[clap(visible_alias = "ls")]
@@ -73,6 +77,8 @@ pub enum Commands {
     Delete {
         #[arg(short, long, help = "ID of task being deleted")]
         id: i32,
+        #[arg(long, help = "Print the deleted task as JSON")]
+        json: bool,
     },
     #[command(about = "Launch interactive TUI")]
     Tui,
