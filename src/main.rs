@@ -10,10 +10,27 @@ use clap::Parser;
 
 use std::fs;
 use std::io::Error;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+fn find_tasklist(start: &Path) -> PathBuf {
+    for dir in start.ancestors() {
+        let candidate = dir.join(".tasklist");
+        if candidate.exists() || dir.join(".git").exists() {
+            return candidate;
+        }
+    }
+    start.join(".tasklist")
+}
 
 fn get_tasklist_path(custom: Option<String>) -> Result<(String, String), String> {
-    let raw_path = custom.unwrap_or_else(|| ".tasklist".to_string());
+    let raw_path = match custom {
+        Some(path) => path,
+        None => {
+            let cwd = std::env::current_dir()
+                .map_err(|e| format!("Cannot read the current directory: {}", e))?;
+            find_tasklist(&cwd).to_string_lossy().to_string()
+        },
+    };
 
     let path_buf = match fs::canonicalize(&raw_path) {
         Ok(p) => p,
