@@ -173,27 +173,52 @@ impl Mngr {
         Ok(tasks)
     }
 
-    pub fn list_tasks(&self, kanban: bool, json: bool) -> Result<(), Error> {
+    pub fn list_tasks(
+        &self,
+        id: Option<i32>,
+        kanban: bool,
+        json: bool,
+        status: Option<Status>,
+        search: Option<String>,
+    ) -> Result<(), Error> {
         let tasks = self.get_tasks()?;
+        if !json && tasks.is_empty() {
+            println!("{}", "No tasks found. Add a task to get started!".yellow());
+            return Ok(());
+        }
+
+        let needle = search.map(|f| f.to_lowercase());
+        let filtered_tasks: Vec<Task> = tasks
+            .into_iter()
+            .filter(|t| id.is_none_or(|id| id == t.id))
+            .filter(|t| status.is_none_or(|s| s == t.status))
+            .filter(|t| {
+                needle.as_ref().is_none_or(|needle| {
+                    t.title.to_lowercase().contains(needle)
+                        || t.description.to_lowercase().contains(needle)
+                })
+            })
+            .collect();
         if json {
-            let output = serde_json::to_string_pretty(&tasks).map_err(Error::other)?;
+            let output = serde_json::to_string_pretty(&filtered_tasks).map_err(Error::other)?;
             println!("{output}");
+            return Ok(());
+        }
+        if filtered_tasks.is_empty() {
+            println!("{}", "No tasks found.".yellow());
             return Ok(());
         }
 
         println!(
             "Project: {}",
-            self.title.as_ref().unwrap_or(&String::from("My Tasks"))
+            self.title.as_ref().unwrap_or(&String::from("My Tasks")) // TODO: make placeholder
+                                                                     // string constant
         );
-        if tasks.is_empty() {
-            println!("{}", "No tasks found. Add a task to get started!".yellow());
-            return Ok(());
-        }
 
         if kanban {
-            self.display_kanban(&tasks);
+            self.display_kanban(&filtered_tasks);
         } else {
-            let builder = Table::builder(tasks).index().column(0).name(None);
+            let builder = Table::builder(filtered_tasks).index().column(0).name(None);
             let mut table = builder.build();
             table
                 .with(Style::modern())

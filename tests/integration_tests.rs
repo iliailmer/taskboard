@@ -304,3 +304,40 @@ fn test_mutations_report_the_affected_task() {
     assert_eq!(deleted["id"], 2);
     assert_eq!(read_json(&dir).as_array().unwrap().len(), 1);
 }
+
+#[test]
+fn test_show_filters() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path().to_path_buf();
+    let ids = |args: &[&str]| -> Vec<i64> {
+        let mut full = vec!["--file", ".tasklist", "show", "--json"];
+        full.extend_from_slice(args);
+        let output = run_command(&dir, &full);
+        assert!(output.status.success(), "{:?}", args);
+        let tasks: Value = serde_json::from_slice(&output.stdout).unwrap();
+        tasks
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["id"].as_i64().unwrap())
+            .collect()
+    };
+
+    assert_eq!(ids(&[]), Vec::<i64>::new());
+
+    ok(
+        &dir,
+        &["add", "Write docs", "--description", "README section"],
+    );
+    ok(&dir, &["add", "Fix bug"]);
+    ok(&dir, &["add", "Fix docs typo"]);
+    ok(&dir, &["update", "--id", "2", "--status", "ip"]);
+    ok(&dir, &["update", "--id", "3", "--status", "ip"]);
+
+    assert_eq!(ids(&[]), [1, 2, 3]);
+    assert_eq!(ids(&["--id", "2"]), [2]);
+    assert_eq!(ids(&["--status", "ip"]), [2, 3]);
+    assert_eq!(ids(&["--search", "readme"]), [1]);
+    assert_eq!(ids(&["--status", "ip", "--search", "docs"]), [3]);
+    assert_eq!(ids(&["--id", "9"]), Vec::<i64>::new());
+}

@@ -67,6 +67,12 @@ pub enum Commands {
     #[clap(visible_alias = "ls")]
     #[clap(visible_alias = "list")]
     Show {
+        #[arg(short, long, help = "Filter by `id`")]
+        id: Option<i32>,
+        #[arg(short, long, help = "Filter by status")]
+        status: Option<Status>,
+        #[arg(long, help = "Search and return matching by substring")]
+        search: Option<String>,
         #[arg(short, long, help = "Display tasks in Kanban board view")]
         kanban: bool,
         #[arg(long, help = "Print tasks as JSON")]

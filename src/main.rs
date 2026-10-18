@@ -87,7 +87,13 @@ fn main() {
         }) => mngr
             .update_task(id, status, title, description)
             .and_then(|task| report("Updated", &task, json)),
-        Some(Commands::Show { kanban, json }) => mngr.list_tasks(kanban, json),
+        Some(Commands::Show {
+            id,
+            kanban,
+            json,
+            status,
+            search,
+        }) => mngr.list_tasks(id, kanban, json, status, search),
         Some(Commands::Delete { id, json }) => mngr
             .delete_task(id)
             .and_then(|task| report("Deleted", &task, json)),
@@ -104,7 +110,7 @@ fn main() {
                 println!("  tsk --help");
                 return;
             }
-            mngr.list_tasks(args.kanban, false)
+            mngr.list_tasks(None, args.kanban, false, None, None)
         },
     };
 
