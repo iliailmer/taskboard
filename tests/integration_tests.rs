@@ -418,3 +418,44 @@ fn test_tasklist_is_found_in_parent_directories() {
     let tasks: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(tasks[0]["title"], "From deep");
 }
+
+// The workflow an agent or script relies on: every step is checked by exit
+// code and parsed JSON only, with no --file and no rendered output.
+#[test]
+fn test_agent_lifecycle() {
+    let temp_dir = TempDir::new().unwrap();
+    let dir = temp_dir.path().to_path_buf();
+    let run = |args: &[&str]| -> (i32, String) {
+        let output = run_command(&dir, args);
+        (
+            output.status.code().unwrap(),
+            String::from_utf8(output.stdout).unwrap(),
+        )
+    };
+    let json = |args: &[&str]| -> Value {
+        let (code, stdout) = run(args);
+        assert_eq!(code, 0, "{:?}", args);
+        serde_json::from_str(&stdout).unwrap()
+    };
+
+    assert_eq!(run(&["init"]).0, 0);
+    assert_eq!(json(&["show", "--json"]), serde_json::json!([]));
+
+    let first = json(&["add", "Ship it", "--description", "body", "--json"]);
+    assert_eq!(first["id"], 1);
+    assert_eq!(first["status"], "not_started");
+    assert_eq!(json(&["add", "Second", "--json"])["id"], 2);
+
+    let updated = json(&["update", "1", "--status", "done", "--json"]);
+    assert_eq!(updated["status"], "done");
+    assert_eq!(updated["description"], "body");
+    assert_eq!(json(&["show", "1", "--json"]), serde_json::json!([updated]));
+
+    assert_eq!(json(&["delete", "1", "--json"])["id"], 1);
+    let remaining = json(&["show", "--json"]);
+    assert_eq!(remaining.as_array().unwrap().len(), 1);
+    assert_eq!(remaining[0]["id"], 2);
+
+    assert_eq!(run(&["delete", "1", "--json"]), (1, String::new()));
+    assert_eq!(run(&["init"]).0, 1);
+}

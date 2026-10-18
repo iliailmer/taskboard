@@ -5,10 +5,12 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![codecov](https://codecov.io/gh/iliailmer/taskboard/branch/main/graph/badge.svg)](https://codecov.io/gh/iliailmer/taskboard)
 
-> > [!WARNING]
-> > This project is still in early development and mostly considered a learning experiment.
+<!-- > > [!WARNING] -->
 
-A fast, reliable command-line task manager written in Rust with atomic file operations and file locking.
+<!-- > > This project is still in early development and mostly considered a learning experiment. -->
+
+A fast, reliable command-line task manager written in Rust with atomic file
+operations and file locking.
 
 ## Features
 
@@ -21,7 +23,8 @@ A fast, reliable command-line task manager written in Rust with atomic file oper
 
 ## Installation
 
-**Platform Support:** Linux and macOS (Windows is expected to work but is untested)
+**Platform Support:** Linux and macOS (Windows is expected to work but is
+untested)
 
 ### From crates.io
 
@@ -114,14 +117,14 @@ tsk tui
 
 ## File Format
 
-Without `--file`, `tsk` uses the nearest `.tasklist` in the current directory
-or a parent directory, as git finds `.git`. The search stops at the git
-repository root; if no tasklist is found, a new one goes there (or in the
-current directory outside a repository).
+Without `--file`, `tsk` uses the nearest `.tasklist` in the current directory or
+a parent directory, as git finds `.git`. The search stops at the git repository
+root; if no tasklist is found, a new one goes there (or in the current directory
+outside a repository).
 
-Tasks are stored in `.tasklist` as five tab-separated fields: ID, status,
-title, escaped description, and date. Embedded description newlines are stored
-as `\n`; existing four-field files migrate on their next mutation.
+Tasks are stored in `.tasklist` as five tab-separated fields: ID, status, title,
+escaped description, and date. Embedded description newlines are stored as `\n`;
+existing four-field files migrate on their next mutation.
 
 ```
 #max_id=3
