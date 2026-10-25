@@ -33,8 +33,8 @@ enum AppMode {
     Normal,
     AddingTitle,
     AddingDescription,
-    EditingTitle { id: i32, status: Status },
-    EditingDescription { id: i32, status: Status },
+    EditingTitle { id: i32 },
+    EditingDescription { id: i32 },
     ConfirmDelete,
 }
 
@@ -219,17 +219,27 @@ impl App {
         Ok(())
     }
 
-    fn save_edited_task(&mut self, id: i32, status: Status) -> io::Result<()> {
+    fn save_edited_task(&mut self, id: i32) -> io::Result<()> {
         self.manager
             .update_task(
                 id,
-                Some(status),
+                None,
                 Some(self.draft_title.clone()),
                 Some(self.input.clone()),
             )
             .map_err(io::Error::other)?;
         self.reset_editor();
         self.reload_tasks()
+    }
+
+    // On failure the mode and the draft stay, so the user can retry or copy it.
+    fn save_draft(&mut self) {
+        let result = match self.mode {
+            AppMode::AddingDescription => self.add_task(),
+            AppMode::EditingDescription { id } => self.save_edited_task(id),
+            _ => return,
+        };
+        self.error_message = result.err().map(|e| format!("Error: {}", e));
     }
 
     fn reset_editor(&mut self) {
@@ -289,19 +299,13 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App) 
                         app.error_message = None;
                     },
                     KeyCode::Char('e') => {
-                        if let Some((id, status, title, description)) =
-                            app.get_selected_task().map(|task| {
-                                (
-                                    task.id,
-                                    task.status,
-                                    task.title.clone(),
-                                    task.description.clone(),
-                                )
-                            })
+                        if let Some((id, title, description)) = app
+                            .get_selected_task()
+                            .map(|task| (task.id, task.title.clone(), task.description.clone()))
                         {
                             app.input = title;
                             app.draft_description = description;
-                            app.mode = AppMode::EditingTitle { id, status };
+                            app.mode = AppMode::EditingTitle { id };
                             app.error_message = None;
                         }
                     },
@@ -356,9 +360,7 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App) 
                 },
                 AppMode::AddingDescription => match key.code {
                     KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        if let Err(e) = app.add_task() {
-                            app.error_message = Some(format!("Error: {}", e));
-                        }
+                        app.save_draft();
                     },
                     KeyCode::Enter => app.input.push('\n'),
                     KeyCode::Esc => {
@@ -371,12 +373,12 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App) 
                     },
                     _ => {},
                 },
-                AppMode::EditingTitle { id, status } => match key.code {
+                AppMode::EditingTitle { id } => match key.code {
                     KeyCode::Enter => {
                         if !app.input.trim().is_empty() {
                             app.draft_title = std::mem::take(&mut app.input);
                             app.input = std::mem::take(&mut app.draft_description);
-                            app.mode = AppMode::EditingDescription { id, status };
+                            app.mode = AppMode::EditingDescription { id };
                         }
                     },
                     KeyCode::Esc => {
@@ -391,11 +393,9 @@ fn run_app(terminal: &mut Terminal<CrosstermBackend<io::Stdout>>, mut app: App) 
                     },
                     _ => {},
                 },
-                AppMode::EditingDescription { id, status } => match key.code {
+                AppMode::EditingDescription { .. } => match key.code {
                     KeyCode::Char('s') if key.modifiers.contains(KeyModifiers::CONTROL) => {
-                        if let Err(e) = app.save_edited_task(id, status) {
-                            app.error_message = Some(format!("Error: {}", e));
-                        }
+                        app.save_draft();
                     },
                     KeyCode::Enter => app.input.push('\n'),
                     KeyCode::Esc => {
@@ -475,9 +475,16 @@ fn ui(f: &mut Frame, app: &mut App) {
                 },
                 _ => unreachable!(),
             };
+            let mut block = Block::default().borders(Borders::ALL).title(title);
+            if let Some(error) = &app.error_message {
+                block = block.title_bottom(Span::styled(
+                    error.as_str(),
+                    Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
+                ));
+            }
             let input = Paragraph::new(app.input.as_str())
                 .style(Style::default().fg(Color::Yellow))
-                .block(Block::default().borders(Borders::ALL).title(title));
+                .block(block);
             f.render_widget(input, chunks[2]);
         },
         AppMode::ConfirmDelete => {
@@ -613,5 +620,45 @@ fn render_kanban_board(f: &mut Frame, app: &App, area: Rect) {
 
         let list = List::new(items).block(block);
         f.render_widget(list, columns_layout[col_idx]);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::os::unix::fs::PermissionsExt;
+
+    #[test]
+    fn failed_save_keeps_the_draft_and_retry_saves_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(".tasklist");
+        let mngr = || Mngr::new(path.to_string_lossy().into_owned(), None);
+        let mut app = App::new(mngr()).unwrap();
+        app.mode = AppMode::AddingDescription;
+        app.draft_title = "Title".into();
+        app.input = "Body".into();
+
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o555)).unwrap();
+        app.save_draft();
+        fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(app.error_message.is_some());
+        assert!(app.mode == AppMode::AddingDescription);
+        assert_eq!(
+            (app.draft_title.as_str(), app.input.as_str()),
+            ("Title", "Body")
+        );
+
+        app.save_draft();
+
+        assert!(app.error_message.is_none());
+        assert!(app.mode == AppMode::Normal);
+        let saved = mngr().get_tasks().unwrap();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(
+            (saved[0].title.as_str(), saved[0].description.as_str()),
+            ("Title", "Body")
+        );
     }
 }
